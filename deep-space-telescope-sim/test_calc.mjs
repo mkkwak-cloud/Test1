@@ -1,5 +1,5 @@
 import * as C from './calc.js';
-const eq = (a, b, m, tol = 1e-6) => { if (Math.abs(a - b) > tol) { console.log('FAIL', m, a, b); process.exitCode = 1; } else console.log('ok  ', m, a); };
+const eq = (a, b, m, tol = 1e-6) => { if (!(Math.abs(a - b) <= tol)) { console.log('FAIL', m, a, b); process.exitCode = 1; } else console.log('ok  ', m, a); };
 
 // 1) 육각 배치: 2링 구멍 있음 = 18장 (JWST)
 eq(C.hexLayout(2, 1.32, 0.02, true).length, 18, 'JWST형 분할거울 수');
@@ -95,4 +95,26 @@ for (const m of ['A', 'B', 'C']) {
   const cb = C.annulusMean(C.coronagraphFromPupil(C.makePupil(segs, 2.0, Deff, { ...o, pistonNm: 0.02 })).img, 512, 160, 3.5, 12);
   eq(cb / ca, 4, `대비 ∝ σ² (10 pm piston 7장 → ${ca.toExponential(2)})`, 1e-3);
   eq(C.toleranceFor(0.01, ca, ca * 4), 0.02, '허용 오차 환산', 1e-12);
+}
+
+// 6) 검출 예산: Turyshev(arXiv:2609.32023) 수치 재현 — 115.46 ppt, 99% 검출 FRN 14.94 ppt, 20 ppt에서 64.55%
+{
+  const fp = C.planetFluxRatio();
+  eq(fp * 1e12, 115.46, '지구형 행성 밝기비(ppt)', 0.05);
+  eq(fp / C.requiredSNR() * 1e12, 14.94, '99% 검출 필요 FRN(ppt)', 0.01);
+  eq(C.detectPower(fp / 20e-12) * 100, 64.55, '20 ppt 검출 확률(%)', 0.02);
+  eq(C.normInv(C.normCdf(1.234)), 1.234, '정규분포 역함수', 1e-6);
+  const P0 = { area: Math.PI * 9, lamNm: 500, dLamNm: 100, dPc: 5, aAU: 1, cRaw: 3e-10, cStab: 0, tauCore: 0.12, fp };
+  const b = C.detectionBudget(P0);
+  eq(b.g, 1.2127344, '대역 평균 ḡ (Eq.93)', 1e-5);
+  eq(b.Cstar / 1e9, 2.3665863, '별 전자율 C⋆ (10⁹ e/s, 논문 Eq.93)', 2e-4);
+  eq(b.Cp, 0.0327905, '행성 전자율 C_p', 2e-6);
+  eq(b.leak, 0.8610122, '별빛 누설 C_leak', 1e-4);
+  eq(b.frnPh * 1e12, 8.7953, '100 h 광자 FRN (ppt)', 2e-3);
+  eq(b.specAllow * 1e12, 11.5641, '광학 잔여 허용 FRN (ppt, Eq.94)', 2e-3);
+  eq(b.cStabAllow * 1e12, 1.1443, '허용 대비 안정도 (10⁻¹² NI)', 1e-3);
+  eq(C.limitingDistance(P0), 8.1065, '100 h 한계 거리 (pc)', 2e-3);
+  const b10 = C.detectionBudget({ ...P0, dPc: 10 });
+  eq(b10.frnPh * 1e12, 18.197, '10 pc 광자 FRN (ppt)', 2e-2);
+  eq(C.detectionBudget({ ...P0, cStab: 10e-12 / (b.g / 0.12) }).tReqH, 69.64, '광학 잔여 10 ppt 필요 시간 (h)', 0.05);
 }

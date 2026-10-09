@@ -70,7 +70,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5 };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12 };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -669,6 +669,7 @@ function updateAssembly(t) {
 const fmtM = kg => kg >= 1000 ? (kg / 1000).toFixed(1) + ' t' : Math.round(kg) + ' kg';
 function updateStats() {
   const st = buildStats(S, ctx.segs, ctx.Deff, ctx.opt, ctx.rs), fit = fitCheck(S.mode, S, ctx.Deff, ctx.xh, st.N), o = ctx.opt;
+  ctx.Aeff = st.Aeff;
   const rows = [
     ['분할거울', `${st.N}장 (${ctx.n}링)`],
     ['실제 구경(외접)', `${ctx.Deff.toFixed(2)} m`],
@@ -700,7 +701,7 @@ function updateStats() {
 const PSF_N = 512, PSF_DPX = 160, PSF_HALF = 16;   // 격자, 동공 지름 픽셀, 표시 반경(λ/D)
 let psfT = null, psfPerfect = { key: '', f: null };
 function schedulePSF() { clearTimeout(psfT); psfT = setTimeout(updatePSF, 140); }
-const fmtOpd = nm => nm >= 1000 ? (nm / 1000).toFixed(1) + ' µm' : nm >= 1 ? nm.toFixed(nm < 10 ? 1 : 0) + ' nm' : (nm * 1000).toFixed(nm < 0.01 ? 1 : 0) + ' pm';
+const fmtOpd = nm => !isFinite(nm) ? '∞' : nm >= 1000 ? (nm / 1000).toFixed(1) + ' µm' : nm >= 1 ? nm.toFixed(nm < 10 ? 1 : 0) + ' nm' : nm >= 1e-3 ? (nm * 1000).toFixed(nm < 0.01 ? 1 : 0) + ' pm' : (nm * 1e6).toFixed(nm < 1e-5 ? 1 : 0) + ' fm';
 function updatePSF() {
   if (!ctx.segs) return;
   const cv = $('psf'); if (!cv) return;
@@ -754,10 +755,45 @@ function updatePSF() {
     ['분할 오차 포락선 첫 영점', `${env.toFixed(1)} λ/D`],
   ];
   const cls = { '코로나그래프 암부 평균 대비': cDZ <= 1e-10 ? 'ok' : 'bad', '지름 방향 분할 수 N': N <= IWA ? 'ok' : 'bad' };
+  ctx.psf = { cDZ, tot, IWA, OWA, lamD };
+  updateBudget();
   $('psfStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td class="${cls[r[0]] || ''}">${r[1]}</td></tr>`).join('') + '</table>' +
     `<p class="note">코로나그래프는 이상적 모델(Cavarroc 외 2006): 수차 없는 별빛은 완전히 지우고 위상 오차가 만든 스펙클만 남깁니다. 실제 APLC의 설계 바닥(~4×10⁻¹¹)·아포다이저 효과는 빠져 있어 낙관적입니다. 작은 오차에서 대비 ∝ σ²라 허용 오차는 현재 piston:tip/tilt 비율을 유지한 총 rms입니다. 초록 N = 지름 방향 분할 수가 IWA 이하(수동 강건).</p>` +
     `<p class="note">오차는 파면(OPD) rms, 분할거울마다 무작위(고정 시드). 비교 기준: JWST 분할 정렬 ≈50 nm rms, HWO 코로나그래프 목표 ≈10 pm rms.
  코로나그래프 없는 원시 PSF입니다. 논문 가이드: 목표 IWA(λ/D) ≥ N이면 분할 오차가 암부 대비에 덜 새어 듭니다(IWA 3λ/D → 지름 방향 3장·총 7장 이하가 유리, <a href="https://arxiv.org/abs/2608.16479" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2608.16479</a>). 분할 수가 많을수록 허용 오차가 엄격해지고, 같은 가이드 기준 85장→7장이면 piston 허용치가 최대 약 2배 완화됩니다. 분할경 허용 오차는 pm 수준입니다(<a href="https://arxiv.org/abs/2607.28393" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2607.28393</a>).</p>`;
+}
+
+
+// ---------- 지구형 행성 검출 예산 ----------
+// Turyshev(arXiv:2609.32023) 단순화: 두 롤 ADI, 지구형 행성(Ag 0.2, 1 au, 위상각 90°), 탐색 30,000곳·오경보 10⁻³·검출 99%.
+// 원시 대비 = 설계 바닥 3×10⁻¹⁰(논문 Table VI 가시광) + 정적 분할 오차(위 PSF). 롤 간 안정도 = 결맞음 혼합 + 2차 항.
+const C_FLOOR = 3e-10;
+function updateBudget() {
+  const P = ctx.psf; if (!P || !$('budStats')) return;
+  const tH = Math.pow(10, S.tLog), drNm = Math.pow(10, S.drLog) * 1e-6;   // 드리프트 슬라이더: 로그(fm)
+  $('dpcV').textContent = S.dPc.toFixed(1) + ' pc'; $('thV').textContent = tH.toFixed(0) + ' h';
+  $('drV').textContent = fmtOpd(drNm); $('tauV').textContent = S.tau.toFixed(2);
+  const lamNm = S.lambda * 1000, cRaw = C_FLOOR + P.cDZ;
+  const cD = P.cDZ * (drNm / P.tot) ** 2, cStab = contrastStability(cRaw, cD);
+  const base = { area: ctx.Aeff || Math.PI * ctx.Deff ** 2 / 4, lamNm, dLamNm: 0.2 * lamNm, dPc: S.dPc, aAU: 1, cRaw, cStab, tauCore: S.tau, tWallH: tH, fp: planetFluxRatio() };
+  const b = detectionBudget(base), dLim = limitingDistance({ ...base, dPc: 5 });
+  const cdA = -cRaw + Math.sqrt(cRaw * cRaw + b.cStabAllow ** 2), drA = P.cDZ > 0 ? P.tot * Math.sqrt(cdA / P.cDZ) : Infinity;
+  const iwaMas = P.IWA * P.lamD, owaMas = P.OWA * P.lamD, geoOk = b.sepMas >= iwaMas && b.sepMas <= owaMas;
+  const ppt = v => (v * 1e12).toFixed(v * 1e12 < 10 ? 2 : 1) + ' ppt';
+  const rows = [
+    ['행성 밝기비 (지구형, 직각 위상)', ppt(b.fp)],
+    ['행성 이격 / 암부 범위', `${b.sepMas.toFixed(0)} mas / ${iwaMas.toFixed(0)}–${owaMas.toFixed(0)} mas`, geoOk ? 'ok' : 'bad'],
+    ['별 · 행성 전자율', `${b.Cstar.toExponential(2)} · ${b.Cp.toFixed(3)} e⁻/s`],
+    ['원시 대비 (설계 바닥 + 정적 오차)', `${cRaw.toExponential(2)}`],
+    ['필요 FRN (99% 검출)', ppt(b.frnReq)],
+    ['FRN 광자 · 스펙클 · 보정', `${ppt(b.frnPh)} · ${ppt(b.frnSt)} · 3.5`],
+    ['FRN 합계 → 검출 확률', `${ppt(b.frn)} → ${(b.power * 100).toFixed(1)} %`, b.power >= 0.99 ? 'ok' : 'bad'],
+    ['99% 검출 필요 관측 시간', isFinite(b.tReqH) ? `${b.tReqH.toFixed(b.tReqH < 10 ? 1 : 0)} h` : '불가 (안정도·보정 천장)', b.tReqH <= tH ? 'ok' : 'bad'],
+    ['허용 대비 안정도 · 드리프트', b.specAllow > 0 ? `${b.cStabAllow.toExponential(2)} · ${fmtOpd(drA)}` : '없음 (광자+보정만으로 초과)'],
+    [`${tH.toFixed(0)} h 한계 거리 (광학 잔여 0)`, `${dLim.toFixed(1)} pc`],
+  ];
+  $('budStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td class="${r[2] || ''}">${r[1]}</td></tr>`).join('') + '</table>' +
+    `<p class="note">근거: <a href="https://arxiv.org/abs/2609.32023" target="_blank" rel="noopener" style="color:var(--ac2)">Turyshev, arXiv 2609.32023</a>의 해석적 모델을 단순화했습니다(6 m·500 nm·5 pc 기준값 재현: 광자 FRN 8.80 ppt, 한계 거리 8.11 pc). 대역 20%, QE 0.2, 하늘 배경 0.02 e⁻/s, 보정 잔차 3.5 ppt, 측광 구멍 0.7λ/D. 집광면적은 위 설계의 유효 집광면적을 씁니다. 드리프트→대비 안정도는 이상적 코로나그래프와 무작위 위상 결맞음 혼합(√(2·C_raw·c_d + c_d²)) 근사라 실제 자코비안 기반 값과 다를 수 있습니다. 스펙클 FRN은 롤 사이에 평균되지 않는 잔여로 봅니다(보수적).</p>`;
 }
 
 // ---------- UI ----------
@@ -781,6 +817,12 @@ const CE = {};
     '<div class="row"><label><span>분할 거울 tip/tilt 오차 (rms)</span><span id="ttV"></span></label><input type="range" id="tt" min="0" max="6" step="0.05"></div>' +
     '<div class="chk" id="strutRow"><input type="checkbox" id="strutC" checked><label for="strutC">부경 지지대 3개 그림자 포함</label></div>' +
     '<div id="psfStats"></div>' +
+    '<h2>지구형 행성 검출 예산 (HWO OS-1 단순화)</h2>' +
+    '<div class="row"><label><span>별까지 거리 (태양형 별)</span><span id="dpcV"></span></label><input type="range" id="dpc" min="2" max="20" step="0.1"></div>' +
+    '<div class="row"><label><span>관측 시간 (전체, 가동률 80%)</span><span id="thV"></span></label><input type="range" id="th" min="1" max="3" step="0.01"></div>' +
+    '<div class="row"><label><span>롤 사이 분할경 드리프트 (rms)</span><span id="drV"></span></label><input type="range" id="dr" min="0" max="4" step="0.05"></div>' +
+    '<div class="row"><label><span>행성 코어 처리율 τ</span><span id="tauV"></span></label><input type="range" id="tau" min="0.02" max="0.4" step="0.01"></div>' +
+    '<div id="budStats"></div>' +
     '<h2>설계 파라미터</h2><div id="sl"></div>' +
     '<div class="chk" id="holeRow"><input type="checkbox" id="hole"><label for="hole">중앙 분할거울 제외(부경 광로)</label></div>' +
     '<div class="row" id="eacRow"><label><span>HWO 구성(EAC)</span></label><select id="eac"></select></div>' +
@@ -811,6 +853,9 @@ const CE = {};
   for (const k in EACS) { const o = document.createElement('option'); o.value = k; o.textContent = EACS[k].name; es.appendChild(o); }
   es.addEventListener('change', () => { Object.assign(S, EACS[es.value], { eac: es.value }); syncUI(); build(false); });
   $('pis').value = S.pisLog; $('tt').value = S.ttLog; $('iwa').value = S.iwa; $('psfMode').value = S.psfMode;
+  for (const [id, k] of [['dpc', 'dPc'], ['th', 'tLog'], ['dr', 'drLog'], ['tau', 'tau']]) {
+    $(id).value = S[k]; $(id).addEventListener('input', e => { S[k] = +e.target.value; updateBudget(); });
+  }
   $('iwa').addEventListener('input', e => { S.iwa = +e.target.value; schedulePSF(); });
   $('psfMode').addEventListener('change', e => { S.psfMode = e.target.value; schedulePSF(); });
   $('pis').addEventListener('input', e => { S.pisLog = +e.target.value; schedulePSF(); });

@@ -283,3 +283,72 @@ export function annulusMean(img, N, Dpx, r0, r1) {
 
 // 작은 위상 오차에서 대비 ∝ σ² → 목표 대비를 맞추는 허용 오차 배율
 export const toleranceFor = (sigma, contrast, target) => contrast > 0 ? sigma * Math.sqrt(target / contrast) : Infinity;
+
+// ===== 지구형 행성 검출 예산 — Turyshev(arXiv:2609.32023)의 해석적 모델을 단순화 =====
+// 행성 신호 → 필요 FRN(검출 검정) → 광자·스펙클 안정도·보정 잡음 → 적분 시간. 입력값은 논문 Table IV 기본값, 처리율 τ는 가정.
+const HC = 6.62607015e-34 * 2.99792458e8, KB = 1.380649e-23, PC = 3.0857e16, AU = 1.495978707e11;
+export function normCdf(x) {   // Φ(x), erfc 근사(Numerical Recipes, 상대오차 ~1e-7)
+  const z = Math.abs(x) / Math.SQRT2, t = 1 / (1 + 0.5 * z);
+  const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+  return x >= 0 ? 1 - r / 2 : r / 2;
+}
+export function normInv(p) {   // Φ⁻¹(p), Acklam 근사 + 뉴턴 1회
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  const q = Math.min(p, 1 - p); let x;
+  if (q < 0.02425) { const u = Math.sqrt(-2 * Math.log(q)); x = (((((c[0] * u + c[1]) * u + c[2]) * u + c[3]) * u + c[4]) * u + c[5]) / ((((d[0] * u + d[1]) * u + d[2]) * u + d[3]) * u + 1); if (p > 0.5) x = -x; }
+  else { const u = p - 0.5, r = u * u; x = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * u / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+  const e = normCdf(x) - p; x -= e * Math.sqrt(2 * Math.PI) * Math.exp(x * x / 2);
+  return x;
+}
+// 람베르트 행성 밝기비: Ag·Φ(α)·(Rp/a)², Φ(α) = [sinα + (π−α)cosα]/π
+export function planetFluxRatio(Ag = 0.2, RpKm = 6371, aAU = 1, alphaDeg = 90) {
+  const al = alphaDeg * Math.PI / 180, phi = (Math.sin(al) + (Math.PI - al) * Math.cos(al)) / Math.PI;
+  return Ag * phi * (RpKm * 1e3 / (aAU * AU)) ** 2;
+}
+// 검출 검정: 탐색 지점 nTrial, 전체 오경보 pfa, 미검출 fMiss → 필요 SNR. 주어진 SNR의 검출 확률
+export const detectThreshold = (nTrial = 30000, pfa = 1e-3) => normInv(1 - pfa / nTrial);
+export const requiredSNR = (nTrial = 30000, pfa = 1e-3, fMiss = 0.01) => detectThreshold(nTrial, pfa) + normInv(1 - fMiss);
+export const detectPower = (snr, nTrial = 30000, pfa = 1e-3) => normCdf(snr - detectThreshold(nTrial, pfa));
+// 흑체 별의 광자율(광자/s/m²), 대역 [λc ± Δλ/2]
+// withG: 측광 구멍(고정 0.7λc/D)의 대역 평균 ḡ = ∫R·g·(λc/λ)² dλ / ∫R dλ 도 함께 반환
+export function starPhotonFlux(lamNm, dLamNm, dPc, Tstar = 5772, RstarM = 6.957e8, withG = false) {
+  let s = 0, sg = 0; const n = 80, dl = dLamNm * 1e-9 / n;
+  for (let i = 0; i < n; i++) {
+    const l = (lamNm - dLamNm / 2) * 1e-9 + (i + 0.5) * dl;
+    const r = (RstarM / (dPc * PC)) ** 2 * 2 * Math.PI * 2.99792458e8 / l ** 4 / (Math.exp(HC / (l * KB * Tstar)) - 1) * dl;
+    s += r; sg += r * G_CORE * (lamNm * 1e-9 / l) ** 2;
+  }
+  return withG ? { flux: s, g: sg / s } : s;
+}
+// 두 롤 ADI(OS-1) 기준. p: { area(m²), lamNm, dLamNm, dPc, aAU, cRaw, cStab, tauCore, qe, tWallH, live, calPpt, fp }
+// 별 기준 전자율 C⋆(코로나그래프 전), 행성 C_p = f_p·τ_core·C⋆, 누설 C_leak = ḡ·C⋆·C_raw, 광자 분산 V = C_p + 2(C_leak + C_b)
+// FRN_ph = √(V/t)/(C⋆τ_core), FRN_speck = κ_c·C_stab (κ_c = ḡ/τ_core), FRN² = FRN_ph² + FRN_speck² + FRN_cal²
+export const G_CORE = Math.PI * Math.PI * 0.49 / 4;   // 측광 구멍 반경 0.7λ/D 의 PSF_pk·Ω
+export function detectionBudget(p) {
+  const qe = p.qe ?? 0.2, live = p.live ?? 0.8, cal = (p.calPpt ?? 3.5) * 1e-12;
+  const sf = starPhotonFlux(p.lamNm, p.dLamNm, p.dPc, 5772, 6.957e8, true), g = sf.g;
+  const Cstar = sf.flux * p.area * qe;
+  const ex = Cstar * p.tauCore, Cp = p.fp * ex, leak = g * Cstar * p.cRaw;
+  const Cb = 0.02 * (p.dLamNm / 100) * (p.lamNm / 500) ** 2 + 0.001;
+  const V = Cp + 2 * (leak + Cb), t = (p.tWallH ?? 100) * 3600 * live;
+  const frnPh = Math.sqrt(V / t) / ex, frnSt = g / p.tauCore * p.cStab, frn = Math.sqrt(frnPh ** 2 + frnSt ** 2 + cal ** 2);
+  const snrReq = requiredSNR(), frnReq = p.fp / snrReq, snr = p.fp / frn;
+  const rest = frnReq ** 2 - cal ** 2 - frnSt ** 2;
+  const tReqH = rest > 0 ? V / (ex * ex * rest) / 3600 / live : Infinity;
+  const specAllow = Math.sqrt(Math.max(0, frnReq ** 2 - cal ** 2 - frnPh ** 2));   // 이 관측 시간에서 광학 잔여에 남는 FRN
+  return { fp: p.fp, Cstar, Cp, leak, Cb, V, frnPh, frnSt, frn, snr, power: detectPower(snr), snrReq, frnReq, tReqH,
+    specAllow, cStabAllow: specAllow * p.tauCore / g, g, sepMas: (p.aAU ?? 1) / p.dPc * 1000 };
+}
+// 광자+보정 잡음만으로 광학 잔여가 0이 되는 거리(pc) — 이분법
+export function limitingDistance(p) {
+  let lo = 0.5, hi = 100;
+  if (detectionBudget({ ...p, dPc: hi, cStab: 0 }).specAllow > 0) return hi;
+  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (detectionBudget({ ...p, dPc: m, cStab: 0 }).specAllow > 0) lo = m; else hi = m; }
+  return lo;
+}
+// 롤 사이 드리프트의 대비 안정도: 정적 잔여장 E0와 드리프트장 ΔE의 결맞음 혼합(위상 무작위 평균) + 2차 항
+//   ⟨ΔI²⟩ ≈ 2·C_raw·c_d + c_d²  (Turyshev Eq. 62 와 같은 구조), c_d = 드리프트장만의 암부 세기
+export const contrastStability = (cRaw, cDrift) => Math.sqrt(2 * cRaw * cDrift + cDrift * cDrift);

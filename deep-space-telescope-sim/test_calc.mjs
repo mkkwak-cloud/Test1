@@ -84,3 +84,15 @@ for (const m of ['A', 'B', 'C']) {
   if (!(mx > 10 * mn)) { console.log('FAIL 회절 스파이크 이방성'); process.exitCode = 1; }
   if (asym > 1e-3) { console.log('FAIL 점대칭'); process.exitCode = 1; }
 }
+
+// 5) 이상적 코로나그래프: 무수차면 0, 작은 오차에서 대비 ∝ σ²
+{
+  const segs = C.hexLayout(1, 2.0, 0.006, false), Deff = C.apertureOf(segs, 2.0);
+  const o = { N: 512, Dpx: 160, lambdaNm: 500 };
+  const c0 = C.coronagraphFromPupil(C.makePupil(segs, 2.0, Deff, o));
+  eq(C.annulusMean(c0.img, 512, 160, 3.5, 12), 0, '무수차 암부 대비 = 0', 1e-25);
+  const ca = C.annulusMean(C.coronagraphFromPupil(C.makePupil(segs, 2.0, Deff, { ...o, pistonNm: 0.01 })).img, 512, 160, 3.5, 12);
+  const cb = C.annulusMean(C.coronagraphFromPupil(C.makePupil(segs, 2.0, Deff, { ...o, pistonNm: 0.02 })).img, 512, 160, 3.5, 12);
+  eq(cb / ca, 4, `대비 ∝ σ² (10 pm piston 7장 → ${ca.toExponential(2)})`, 1e-3);
+  eq(C.toleranceFor(0.01, ca, ca * 4), 0.02, '허용 오차 환산', 1e-12);
+}

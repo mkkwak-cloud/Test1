@@ -319,6 +319,36 @@ const PHASING_REF = [
   { name: 'HWO 코로나그래프 목표(≈10 pm rms)', nm: 0.01 },
 ];
 
+// ===== 이상적 코로나그래프(Cavarroc 외 2006) — 무수차 별빛을 완전히 제거하고 위상 오차로 생긴 스펙클만 남김 =====
+// E_after = A·(e^{iφ} − ⟨e^{iφ}⟩_A). 세기는 가리지 않은 별의 최대값으로 정규화(= 대비). 실제 APLC의 설계 바닥(~10⁻¹¹)과 아포다이저 효과는 포함하지 않음.
+function coronagraphFromPupil(pup) {
+  const { N, A, W } = pup, re = new Float64Array(N * N), im = new Float64Array(N * N);
+  let sumA = 0, cr = 0, ci = 0;
+  for (let q = 0; q < N * N; q++) if (A[q]) { sumA++; cr += Math.cos(W[q]); ci += Math.sin(W[q]); }
+  cr /= sumA; ci /= sumA;
+  for (let q = 0; q < N * N; q++) if (A[q]) { re[q] = Math.cos(W[q]) - cr; im[q] = Math.sin(W[q]) - ci; }
+  fft2(re, im, N, false);
+  const img = new Float32Array(N * N), norm = 1 / (sumA * sumA);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const q = ((y + N / 2) % N) * N + (x + N / 2) % N;
+    img[y * N + x] = (re[q] * re[q] + im[q] * im[q]) * norm;
+  }
+  return { img };
+}
+
+// 고리 영역 [r0, r1] (λ/D) 평균 세기 — 암부 평균 대비
+function annulusMean(img, N, Dpx, r0, r1) {
+  const sc = Dpx / N, c = N / 2, m = Math.ceil(r1 / sc) + 1; let s = 0, n = 0;
+  for (let y = -m; y <= m; y++) for (let x = -m; x <= m; x++) {
+    const r = Math.hypot(x, y) * sc;
+    if (r >= r0 && r <= r1) { s += img[(c + y) * N + c + x]; n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// 작은 위상 오차에서 대비 ∝ σ² → 목표 대비를 맞추는 허용 오차 배율
+const toleranceFor = (sigma, contrast, target) => contrast > 0 ? sigma * Math.sqrt(target / contrast) : Infinity;
+
 // ===== 심우주 망원경 3D 시뮬레이터 본체 =====
 const $ = id => document.getElementById(id);
 let THREE;
@@ -391,7 +421,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5 };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -1036,16 +1066,25 @@ function updatePSF() {
   const key = [ctx.n, S.seg, S.hole, S.mode, hasStruts, ctx.Deff.toFixed(3)].join('|');
   if (psfPerfect.key !== key) psfPerfect = { key, f: psfFromPupil(pup, false) };
   const pf = psfPerfect.f;
-  // 그리기: 로그 스케일 10⁻⁵~1
+  const IWA = S.iwa, OWA = 12, cor = coronagraphFromPupil(pup);
+  const cDZ = annulusMean(cor.img, PSF_N, PSF_DPX, IWA, OWA), cNear = annulusMean(cor.img, PSF_N, PSF_DPX, IWA, IWA + 1);
+  $('iwaV').textContent = IWA.toFixed(1) + ' λ/D';
+  // 그리기: 원시 PSF는 10⁻⁵~1, 코로나그래프 후는 (암부 평균 ×10⁻²)~(암부 평균 ×10⁴) 로그 스케일
+  const showCor = S.psfMode === 'cor', src = showCor ? cor.img : ab.img;
+  const lo = showCor ? Math.log10(Math.max(cDZ, 1e-30)) - 2 : -5, span = showCor ? 6 : 5;
   const W = 2 * Math.round(PSF_HALF * PSF_N / PSF_DPX) + 1, c0 = PSF_N / 2, h = (W - 1) / 2;
   cv.width = cv.height = W;
   const g = cv.getContext('2d'), im = g.createImageData(W, W);
   for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
-    const v = ab.img[(c0 + y - h) * PSF_N + (c0 + x - h)];
-    const t = Math.min(1, Math.max(0, (Math.log10(v + 1e-12) + 5) / 5)), o = 4 * (y * W + x);
+    const v = src[(c0 + y - h) * PSF_N + (c0 + x - h)];
+    const t = Math.min(1, Math.max(0, (Math.log10(v + 1e-30) - lo) / span)), o = 4 * (y * W + x);
     im.data[o] = 255 * Math.min(1, t * 2.2); im.data[o + 1] = 255 * Math.min(1, Math.max(0, t * 2.2 - 0.7)); im.data[o + 2] = 255 * Math.min(1, 0.25 + t * 1.2 - Math.max(0, t - 0.6) * 1.6); im.data[o + 3] = 255;
   }
   g.putImageData(im, 0, 0);
+  if (showCor) {   // 암부 경계(IWA, OWA) 표시
+    const pxPer = PSF_N / PSF_DPX; g.strokeStyle = 'rgba(77,227,255,.7)'; g.lineWidth = 0.6;
+    for (const r of [IWA, OWA]) { g.beginPath(); g.arc(h + 0.5, h + 0.5, r * pxPer, 0, 2 * Math.PI); g.stroke(); }
+  }
   // 수치
   const r3 = radialMean(ab.img, PSF_N, PSF_DPX, 3), r10 = radialMean(ab.img, PSF_N, PSF_DPX, 10);
   const p3 = radialMean(pf.img, PSF_N, PSF_DPX, 3), p10 = radialMean(pf.img, PSF_N, PSF_DPX, 10);
@@ -1059,10 +1098,15 @@ function updatePSF() {
     ['λ/D (화면 반경 16λ/D)', `${lamD.toFixed(1)} 밀리초각`],
     ['무수차 PSF 3λ/D · 10λ/D', `${ex(p3)} · ${ex(p10)}`],
     ['오차 포함 3λ/D · 10λ/D', `${ex(r3)} · ${ex(r10)}`],
+    ['코로나그래프 암부 평균 대비', `${ex(cDZ)} (${IWA.toFixed(1)}–${OWA} λ/D)`],
+    ['  IWA 근처 대비', `${ex(cNear)} (${IWA.toFixed(1)}–${(IWA + 1).toFixed(1)} λ/D)`],
+    ['  10⁻¹⁰ 달성 허용 오차(암부·IWA 근처)', tot > 0 ? `${fmtOpd(toleranceFor(tot, cDZ, 1e-10))} · ${fmtOpd(toleranceFor(tot, cNear, 1e-10))}` : '—'],
     ['지름 방향 분할 수 N', `${N}장 (링 ${ctx.n})`],
     ['분할 오차 포락선 첫 영점', `${env.toFixed(1)} λ/D`],
   ];
-  $('psfStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td>${r[1]}</td></tr>`).join('') + '</table>' +
+  const cls = { '코로나그래프 암부 평균 대비': cDZ <= 1e-10 ? 'ok' : 'bad', '지름 방향 분할 수 N': N <= IWA ? 'ok' : 'bad' };
+  $('psfStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td class="${cls[r[0]] || ''}">${r[1]}</td></tr>`).join('') + '</table>' +
+    `<p class="note">코로나그래프는 이상적 모델(Cavarroc 외 2006): 수차 없는 별빛은 완전히 지우고 위상 오차가 만든 스펙클만 남깁니다. 실제 APLC의 설계 바닥(~4×10⁻¹¹)·아포다이저 효과는 빠져 있어 낙관적입니다. 작은 오차에서 대비 ∝ σ²라 허용 오차는 현재 piston:tip/tilt 비율을 유지한 총 rms입니다. 초록 N = 지름 방향 분할 수가 IWA 이하(수동 강건).</p>` +
     `<p class="note">오차는 파면(OPD) rms, 분할거울마다 무작위(고정 시드). 비교 기준: JWST 분할 정렬 ≈50 nm rms, HWO 코로나그래프 목표 ≈10 pm rms.
  코로나그래프 없는 원시 PSF입니다. 논문 가이드: 목표 IWA(λ/D) ≥ N이면 분할 오차가 암부 대비에 덜 새어 듭니다(IWA 3λ/D → 지름 방향 3장·총 7장 이하가 유리, <a href="https://arxiv.org/abs/2608.16479" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2608.16479</a>). 분할 수가 많을수록 허용 오차가 엄격해지고, 같은 가이드 기준 85장→7장이면 piston 허용치가 최대 약 2배 완화됩니다. 분할경 허용 오차는 pm 수준입니다(<a href="https://arxiv.org/abs/2607.28393" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2607.28393</a>).</p>`;
 }
@@ -1082,6 +1126,8 @@ const CE = {};
   const pn = $('panel');
   pn.innerHTML = '<h2>성능 요약</h2><div id="stats"></div>' +
     '<h2>별 회절상(PSF) · 분할경 위상 오차</h2><canvas id="psf" width="206" height="206" style="width:100%;max-width:260px;aspect-ratio:1;display:block;margin:0 auto;background:#000;border:1px solid var(--bd);border-radius:8px"></canvas>' +
+    '<div class="row"><label><span>표시</span></label><select id="psfMode"><option value="raw">원시 PSF (코로나그래프 없음)</option><option value="cor">코로나그래프 후 (이상적, 별빛 제거)</option></select></div>' +
+    '<div class="row"><label><span>코로나그래프 IWA (초점면 마스크 반경)</span><span id="iwaV"></span></label><input type="range" id="iwa" min="2" max="8" step="0.1"></div>' +
     '<div class="row"><label><span>분할 거울 piston 오차 (rms)</span><span id="pisV"></span></label><input type="range" id="pis" min="0" max="6" step="0.05"></div>' +
     '<div class="row"><label><span>분할 거울 tip/tilt 오차 (rms)</span><span id="ttV"></span></label><input type="range" id="tt" min="0" max="6" step="0.05"></div>' +
     '<div class="chk" id="strutRow"><input type="checkbox" id="strutC" checked><label for="strutC">부경 지지대 3개 그림자 포함</label></div>' +
@@ -1115,7 +1161,9 @@ const CE = {};
   const es = $('eac');
   for (const k in EACS) { const o = document.createElement('option'); o.value = k; o.textContent = EACS[k].name; es.appendChild(o); }
   es.addEventListener('change', () => { Object.assign(S, EACS[es.value], { eac: es.value }); syncUI(); build(false); });
-  $('pis').value = S.pisLog; $('tt').value = S.ttLog;
+  $('pis').value = S.pisLog; $('tt').value = S.ttLog; $('iwa').value = S.iwa; $('psfMode').value = S.psfMode;
+  $('iwa').addEventListener('input', e => { S.iwa = +e.target.value; schedulePSF(); });
+  $('psfMode').addEventListener('change', e => { S.psfMode = e.target.value; schedulePSF(); });
   $('pis').addEventListener('input', e => { S.pisLog = +e.target.value; schedulePSF(); });
   $('tt').addEventListener('input', e => { S.ttLog = +e.target.value; schedulePSF(); });
   $('strutC').addEventListener('change', e => { S.struts = e.target.checked; schedulePSF(); });

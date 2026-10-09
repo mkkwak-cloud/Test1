@@ -253,3 +253,33 @@ export const PHASING_REF = [
   { name: 'JWST 분할 정렬 달성(≈50 nm rms)', nm: 50 },
   { name: 'HWO 코로나그래프 목표(≈10 pm rms)', nm: 0.01 },
 ];
+
+// ===== 이상적 코로나그래프(Cavarroc 외 2006) — 무수차 별빛을 완전히 제거하고 위상 오차로 생긴 스펙클만 남김 =====
+// E_after = A·(e^{iφ} − ⟨e^{iφ}⟩_A). 세기는 가리지 않은 별의 최대값으로 정규화(= 대비). 실제 APLC의 설계 바닥(~10⁻¹¹)과 아포다이저 효과는 포함하지 않음.
+export function coronagraphFromPupil(pup) {
+  const { N, A, W } = pup, re = new Float64Array(N * N), im = new Float64Array(N * N);
+  let sumA = 0, cr = 0, ci = 0;
+  for (let q = 0; q < N * N; q++) if (A[q]) { sumA++; cr += Math.cos(W[q]); ci += Math.sin(W[q]); }
+  cr /= sumA; ci /= sumA;
+  for (let q = 0; q < N * N; q++) if (A[q]) { re[q] = Math.cos(W[q]) - cr; im[q] = Math.sin(W[q]) - ci; }
+  fft2(re, im, N, false);
+  const img = new Float32Array(N * N), norm = 1 / (sumA * sumA);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const q = ((y + N / 2) % N) * N + (x + N / 2) % N;
+    img[y * N + x] = (re[q] * re[q] + im[q] * im[q]) * norm;
+  }
+  return { img };
+}
+
+// 고리 영역 [r0, r1] (λ/D) 평균 세기 — 암부 평균 대비
+export function annulusMean(img, N, Dpx, r0, r1) {
+  const sc = Dpx / N, c = N / 2, m = Math.ceil(r1 / sc) + 1; let s = 0, n = 0;
+  for (let y = -m; y <= m; y++) for (let x = -m; x <= m; x++) {
+    const r = Math.hypot(x, y) * sc;
+    if (r >= r0 && r <= r1) { s += img[(c + y) * N + c + x]; n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// 작은 위상 오차에서 대비 ∝ σ² → 목표 대비를 맞추는 허용 오차 배율
+export const toleranceFor = (sigma, contrast, target) => contrast > 0 ? sigma * Math.sqrt(target / contrast) : Infinity;

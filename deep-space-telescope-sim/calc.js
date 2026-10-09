@@ -402,3 +402,22 @@ export function targetStar(key) {
 }
 // 행성 궤도 a(AU)가 IWA(λ/D 단위) 밖에 놓이는 최대 거리(pc) — 백서 III Eq.(III.14)
 export const iwaHorizonPc = (aAU, iwaLD, lamNm, D) => aAU / (iwaLD * lamNm * 1e-9 / D * 206264.806);
+
+// ===== 차양막 종류 비교 — 공개 논문 수치(모델 값과 구분) =====
+// JWST: NASA 공개(5겹 Kapton, 태양쪽 ~383 K · 망원경쪽 ~36 K), 층 면적 145–166 m²는 SALTUS 논문 Table 10 인용.
+// SALTUS: Harding 외 arXiv:2405.12394 (2겹 직사각 CP1, 층 간격 ~2 m, M1 < 45 K, 따뜻한 쪽 ~310 K, 차양막 모듈 145 kg).
+// V-groove: FOSSIL(Sauvage 외 arXiv:2608.13185, Planck·ARIEL 계승) — MLI + V-groove 3단 ~130/90/50 K + 25 K 능동 차폐.
+export const SHIELD_TYPES = {
+  jwst: {
+    name: 'JWST형 (연 모양 5겹)', n: 5, ref: 'NASA · arXiv:2405.12394 Table 10',
+    rows: { mission: 'JWST (2021 발사, 운용 중)', layers: '5겹', size: '약 21.2 × 14.2 m · 층당 145–166 m²', film: 'Kapton 25–50 µm', coat: '알루미늄 증착 + 태양쪽 1·2층 도핑 실리콘', deploy: '6점 코너 당김 (복잡한 전개)', mass: '—', target: '거울·기기 < 50 K', pub: '태양쪽 ~383 K → 망원경쪽 ~36 K' },
+  },
+  saltus: {
+    name: 'SALTUS형 (직사각 2겹)', n: 2, ref: 'Harding 외 arXiv:2405.12394',
+    rows: { mission: 'SALTUS (NASA 프로브 제안, 2032 목표)', layers: '2겹 · 간격 ~2 m', size: '48.5 × 19.2 m(931 m²) · 50 × 20 m(1,000 m²)', film: 'CP1 12.7 µm (미소 운석 고려)', coat: '알루미늄 증착 + 뒷면 고방출 실리콘', deploy: 'TRAC 복합재 붐 4개로 당김 · 층당 <60분', mass: '145 kg (모듈 전체)', target: '14 m 주경 < 45 K', pub: '따뜻한 쪽 ~310 K → 주경 < 45 K' },
+  },
+  vgroove: {
+    name: 'V-groove형 (3단, Planck·FOSSIL)', n: 3, ref: 'Sauvage 외 arXiv:2608.13185', pubT: [130, 90, 50],
+    rows: { mission: 'FOSSIL (ESA M8 제안, 2040년대) · Planck 계승', layers: 'MLI 20겹 + V-groove 3단 + 25 K 능동 차폐', size: '지름 ~2–3.2 m (소형)', film: '알루미늄 허니컴 패널', coat: 'VDA 뜨거운 면 · 저방출 차가운 면 · 고방출 우주쪽 면', deploy: '고정형 (전개 없음)', mass: '—', target: '기기 4.5 K · 검출기 50 mK (냉동기)', pub: '~130 K → ~90 K → ~50 K' },
+  },
+};

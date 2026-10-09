@@ -468,6 +468,25 @@ function targetStar(key) {
 // 행성 궤도 a(AU)가 IWA(λ/D 단위) 밖에 놓이는 최대 거리(pc) — 백서 III Eq.(III.14)
 const iwaHorizonPc = (aAU, iwaLD, lamNm, D) => aAU / (iwaLD * lamNm * 1e-9 / D * 206264.806);
 
+// ===== 차양막 종류 비교 — 공개 논문 수치(모델 값과 구분) =====
+// JWST: NASA 공개(5겹 Kapton, 태양쪽 ~383 K · 망원경쪽 ~36 K), 층 면적 145–166 m²는 SALTUS 논문 Table 10 인용.
+// SALTUS: Harding 외 arXiv:2405.12394 (2겹 직사각 CP1, 층 간격 ~2 m, M1 < 45 K, 따뜻한 쪽 ~310 K, 차양막 모듈 145 kg).
+// V-groove: FOSSIL(Sauvage 외 arXiv:2608.13185, Planck·ARIEL 계승) — MLI + V-groove 3단 ~130/90/50 K + 25 K 능동 차폐.
+const SHIELD_TYPES = {
+  jwst: {
+    name: 'JWST형 (연 모양 5겹)', n: 5, ref: 'NASA · arXiv:2405.12394 Table 10',
+    rows: { mission: 'JWST (2021 발사, 운용 중)', layers: '5겹', size: '약 21.2 × 14.2 m · 층당 145–166 m²', film: 'Kapton 25–50 µm', coat: '알루미늄 증착 + 태양쪽 1·2층 도핑 실리콘', deploy: '6점 코너 당김 (복잡한 전개)', mass: '—', target: '거울·기기 < 50 K', pub: '태양쪽 ~383 K → 망원경쪽 ~36 K' },
+  },
+  saltus: {
+    name: 'SALTUS형 (직사각 2겹)', n: 2, ref: 'Harding 외 arXiv:2405.12394',
+    rows: { mission: 'SALTUS (NASA 프로브 제안, 2032 목표)', layers: '2겹 · 간격 ~2 m', size: '48.5 × 19.2 m(931 m²) · 50 × 20 m(1,000 m²)', film: 'CP1 12.7 µm (미소 운석 고려)', coat: '알루미늄 증착 + 뒷면 고방출 실리콘', deploy: 'TRAC 복합재 붐 4개로 당김 · 층당 <60분', mass: '145 kg (모듈 전체)', target: '14 m 주경 < 45 K', pub: '따뜻한 쪽 ~310 K → 주경 < 45 K' },
+  },
+  vgroove: {
+    name: 'V-groove형 (3단, Planck·FOSSIL)', n: 3, ref: 'Sauvage 외 arXiv:2608.13185', pubT: [130, 90, 50],
+    rows: { mission: 'FOSSIL (ESA M8 제안, 2040년대) · Planck 계승', layers: 'MLI 20겹 + V-groove 3단 + 25 K 능동 차폐', size: '지름 ~2–3.2 m (소형)', film: '알루미늄 허니컴 패널', coat: 'VDA 뜨거운 면 · 저방출 차가운 면 · 고방출 우주쪽 면', deploy: '고정형 (전개 없음)', mass: '—', target: '기기 4.5 K · 검출기 50 mK (냉동기)', pub: '~130 K → ~90 K → ~50 K' },
+  },
+};
+
 // ===== 심우주 망원경 3D 시뮬레이터 본체 =====
 const $ = id => document.getElementById(id);
 let THREE;
@@ -540,7 +559,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false, leoH: 600, budTarget: 'sun' };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false, leoH: 600, budTarget: 'sun', shieldType: 'jwst' };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5mST·KASI' };
@@ -847,7 +866,9 @@ function build(fit = true) {
 
   // 차광막/버스/태양전지판
   const bb = opt.cass ? opt.b : 0.10 * Deff;
-  const nL = mode === 'A' ? (S.korea ? 2 : 5) : mode === 'B' ? 3 : 2, spc = (mode === 'C' ? 0.02 : 0.045) * Deff;
+  const st = S.jwst ? 'jwst' : S.shieldType;   // 차양막 종류(JWST형 기본 / SALTUS형 / V-groove형)
+  const nL = st === 'saltus' ? 2 : st === 'vgroove' ? 3 : mode === 'A' ? (S.korea ? 2 : 5) : mode === 'B' ? 3 : 2;
+  const spc = (st === 'saltus' ? 0.14 : st === 'vgroove' ? 0.08 : mode === 'C' ? 0.02 : 0.045) * Deff;
   const ySS0 = -bb - (opt.cass ? 0.30 : 0.06) * Deff, yLast = ySS0 - (nL - 1) * spc;
   const sx0 = mode === 'C' ? opt.x0 * 0.5 : 0;
   ctx.layers = [];
@@ -888,14 +909,21 @@ function build(fit = true) {
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x59607a });
   for (let i = 0; i < nL; i++) {
     let m;
-    if (mode === 'C') { m = new THREE.Mesh(new THREE.CircleGeometry(1, 56).rotateX(Math.PI / 2), S.jwst ? M.shieldJ : M.shield); m.scale.set(Deff, 1, Deff); }
+    if (st === 'saltus') {   // SALTUS: 50 × 20 m 직사각 막(14 m 주경 대비 3.57D × 1.43D), 위층이 약간 작음
+      const fz = 1 - 0.03 * (nL - 1 - i), w = 0.715 * Deff * fz, l = 1.785 * Deff * fz;
+      m = new THREE.Mesh(new THREE.PlaneGeometry(2 * w, 2 * l).rotateX(-Math.PI / 2), M.shield); m.userData.bs = 1;
+      m.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([new V3(-w, 0, -l), new V3(w, 0, -l), new V3(w, 0, l), new V3(-w, 0, l)]), edgeMat));
+    } else if (st === 'vgroove') {   // V-groove: 서로 다른 각도로 기울인 원판 3장(바깥으로 벌어지는 V자 틈)
+      m = new THREE.Mesh(new THREE.CircleGeometry(0.75 * Deff * (1 + 0.07 * i), 56).rotateX(Math.PI / 2), M.shield);
+      m.rotation.z = (i % 2 ? -1 : 1) * (0.05 + 0.05 * i); m.userData.bs = 1;
+    } else if (mode === 'C') { m = new THREE.Mesh(new THREE.CircleGeometry(1, 56).rotateX(Math.PI / 2), S.jwst ? M.shieldJ : M.shield); m.scale.set(Deff, 1, Deff); }
     else {
       const fz = 1 - 0.012 * (nL - 1 - i), kg = kiteGeom(Ws * fz, Ls * fz, 0.016 * Deff);   // 층마다 크기 약간 다르게
       m = new THREE.Mesh(kg.g, S.jwst ? M.shieldJ : M.shield); m.add(new THREE.LineLoop(kg.edge, edgeMat));
     }
     m.position.set(sx0, ySS0 - i * spc, 0); tel.add(m); ctx.layers.push(m);
   }
-  ctx.shield = { nL, meshes: ctx.layers.slice(0, nL), lbl: new THREE.Group(), side: mode === 'C' ? [Deff * 1.08, 0] : [0.5 * Ws + 0.05 * Deff, 0.06 * Ls] };
+  ctx.shield = { nL, type: st, meshes: ctx.layers.slice(0, nL), lbl: new THREE.Group(), side: st === 'saltus' ? [0.75 * Deff, 0] : st === 'vgroove' ? [0.95 * Deff, 0] : mode === 'C' ? [Deff * 1.08, 0] : [0.5 * Ws + 0.05 * Deff, 0.06 * Ls] };
   ctx.shield.lbl.position.set(sx0, 0, 0); tel.add(ctx.shield.lbl);
   if (S.jwst && mode === 'A') {                                   // 차양막 중간 지지 붐(좌우 가로대)
     const Ws2 = Ws, Ls2 = Ls;
@@ -932,7 +960,7 @@ function build(fit = true) {
   addName('주경 (분할 거울)', 0, 0.16 * Deff, 0.62 * Deff);
   if (opt.cass) { ctx.secName = addName('부경', 0, opt.d + 0.14 * Deff, 0); addName('과학 기기 (초점면)', 0, -opt.b - 0.04 * Deff - 0.15 * Deff, 0); }
   else addName('코로나그래프·기기', 0, f + 0.10 * Deff + 0.2 * Deff, 0);
-  addName(mode === 'C' ? '차광막(원판)' : `차양막 ${nL}겹`, sx0, yLast - 0.04 * Deff, ctx.shieldSize * 0.3);
+  addName(st === 'saltus' ? 'SALTUS형 차양막 2겹 (간격 넓음)' : st === 'vgroove' ? 'V-groove 3단 (Planck·FOSSIL형)' : mode === 'C' ? '차광막(원판)' : `차양막 ${nL}겹`, sx0, yLast - 0.04 * Deff, ctx.shieldSize * 0.3);
   addName('버스(자세제어·통신)', sx0 - 0.1 * Deff, yBus - 0.2 * Deff, -0.15 * Deff);
   addName('고이득 안테나', sx0 + 0.12 * Deff, yBus - 0.32 * Deff, 0.1 * Deff);
   // 태양전지판: 실제 설계 참조
@@ -1090,7 +1118,8 @@ function applyT(t) {
   // 차광막
   ctx.layers.forEach((m, i) => {
     const k = mode === 'B' ? 1 : 0.12 + 0.88 * ph(t, 0.28 + 0.04 * i, 0.55 + 0.04 * i);
-    m.scale.set(mode === 'C' ? Deff * k : k, 1, mode === 'C' ? Deff * k : k);
+    const b = m.userData.bs ?? (mode === 'C' ? Deff : 1);
+    m.scale.set(b * k, 1, b * k);
   });
   // 부경 붐
   if (ctx.names) ctx.names.visible = S.names;
@@ -1159,8 +1188,8 @@ function updateStats() {
     ['  코로나그래프 목표(백서)', '원시 10⁻⁸ · 후처리 10⁻⁹ · IWA 3λ/D · OWA 20λ/D'], ['  궤도', 'L2 또는 지구궤도 (검토 중)']);
   if (S.jwst) rows.push(['실제 JWST 제원', '구경 6.5 m · 거울 18장 · 집광 25.4 m² · 차양막 21.2×14.2 m · 약 6.2 t']);
   if (ctx.shield) {
-    const sh = sunshieldTemps(ctx.shield.nL);
-    rows.push([`차양막 ${ctx.shield.nL}겹 온도(개략)`, sh.T.map(t => t.toFixed(0)).join(' → ') + ' K'],
+    const sh = sunshieldTemps(ctx.shield.nL), pubT = SHIELD_TYPES[ctx.shield.type].pubT;
+    rows.push([`차양막 ${ctx.shield.nL}${pubT ? '단 온도(공개값)' : '겹 온도(개략 모델)'}`, (pubT || sh.T).map(t => t.toFixed(0)).join(' → ') + ' K'],
       ['  태양 흡수 → 망원경 쪽 방출', `${sh.qIn.toFixed(0)} → ${sh.qLeak < 0.1 ? (sh.qLeak * 1000).toFixed(1) + ' m' : sh.qLeak.toFixed(2) + ' '}W/m² (${(sh.qIn / sh.qLeak).toExponential(0)}배 감쇠)`]);
     if (S.korea) rows.push(['  (저궤도 참고)', '지구 적외선·알베도 미포함 — L2 기준 값']);
   }
@@ -1257,7 +1286,7 @@ function updatePSF() {
 const tempColor = T => { const t = Math.min(1, Math.max(0, Math.log(T / 30) / Math.log(400 / 30))); return new THREE.Color().setHSL(0.66 * (1 - t), 0.9, 0.34 + 0.14 * t); };
 function applyShieldTemp() {
   const sh = ctx.shield; if (!sh) return;
-  const { T } = sunshieldTemps(sh.nL), on = !!S.shieldTemp;
+  const T = SHIELD_TYPES[sh.type].pubT || sunshieldTemps(sh.nL).T, on = !!S.shieldTemp;
   while (sh.lbl.children.length) sh.lbl.remove(sh.lbl.children[0]);
   sh.lbl.visible = on;
   sh.meshes.forEach((m, i) => {
@@ -1271,6 +1300,19 @@ function applyShieldTemp() {
       lb.position.set(sh.side[0] + 0.3 * ctx.Deff, sh.meshes[0].position.y - i * 0.22 * ctx.Deff, sh.side[1]); sh.lbl.add(lb);   // 층 간격이 좁아 라벨은 벌려 놓음
     } else m.material = m.userData.mat0;
   });
+}
+
+
+// ---------- 차양막 비교표 ----------
+function renderShieldCmp() {
+  const ks = Object.keys(SHIELD_TYPES), R = SHIELD_TYPES;
+  const items = [['mission', '미션'], ['layers', '구성'], ['size', '크기'], ['film', '재료'], ['coat', '코팅'], ['deploy', '전개'], ['mass', '질량'], ['target', '대상'], ['pub', '공개 온도']];
+  const model = k => R[k].pubT ? '(같은 모델 적용 안 함)' : sunshieldTemps(R[k].n).T.map(t => t.toFixed(0)).join('→') + ' K';
+  const th = ks.map(k => `<th style="text-align:left;color:${k === S.shieldType ? 'var(--ac)' : 'var(--ink2)'};font-weight:600;padding:3px 4px">${R[k].name.split(' (')[0]}</th>`).join('');
+  const body = items.map(([id, nm]) => `<tr><td class="mu" style="padding:3px 4px;white-space:nowrap">${nm}</td>${ks.map(k => `<td style="text-align:left;color:var(--tx);padding:3px 4px">${R[k].rows[id]}</td>`).join('')}</tr>`).join('') +
+    `<tr><td class="mu" style="padding:3px 4px;white-space:nowrap">모델</td>${ks.map(k => `<td style="text-align:left;padding:3px 4px">${model(k)}</td>`).join('')}</tr>`;
+  $('shCmp').innerHTML = `<div style="overflow-x:auto"><table style="font-size:10.5px;min-width:300px"><tr><th></th>${th}</tr>${body}</table></div>` +
+    `<p class="note">출처: JWST — NASA 공개값, 층 면적은 <a href="https://arxiv.org/abs/2405.12394" target="_blank" rel="noopener" style="color:var(--ac2)">SALTUS 논문</a> 표 10 · SALTUS — Harding 외 arXiv 2405.12394 · V-groove — <a href="https://arxiv.org/abs/2608.13185" target="_blank" rel="noopener" style="color:var(--ac2)">FOSSIL 열 구조(arXiv 2608.13185)</a>. "이 시뮬 모델"은 JWST 공개 온도에 맞춘 1차원 복사 모델에 겹 수만 바꾼 값입니다. SALTUS가 2겹으로 &lt;45 K를 내는 것은 모델에 없는 요소(주경을 태양선과 약 90°로 두는 자세, 층당 ~1,000 m²의 넓은 면적, 2 m 층 간격의 측면 방열, 뒷면 고방출 코팅) 덕분이라 모델값(2층 ~209 K)과 다릅니다. V-groove는 태양이 아니라 293 K 위성 본체를 막는 구조라 공개값만 표시합니다.</p>`;
 }
 
 // ---------- 지구형 행성 검출 예산 ----------
@@ -1341,6 +1383,9 @@ const CE = {};
     '<div class="row" id="eacRow"><label><span>HWO 구성(EAC)</span></label><select id="eac"></select></div>' +
     '<div class="row"><label><span>발사체</span></label><select id="launcher"></select></div>' +
     '<div class="chk" id="ssRow"><input type="checkbox" id="ssh"><label for="ssh">스타셰이드(별도 우주선) 표시</label></div>' +
+    '<h2>차양막 비교 (최근 논문 vs JWST)</h2>' +
+    '<div class="row"><label><span>3D 차양막 종류 (제임스웹 실사 제외)</span></label><select id="shType"></select></div>' +
+    '<div id="shCmp"></div>' +
     '<h2>표시</h2><div class="chk"><input type="checkbox" id="rays" checked><label for="rays">광선 경로</label></div>' +
     '<div class="chk" id="nasaRow"><input type="checkbox" id="nasa" checked><label for="nasa">NASA 실제 3D 모델 사용 <span id="nasaSt" style="color:var(--mu)"></span></label></div>' +
     '<div class="row"><label><span>저궤도 고도 (🛰 LEO 뷰·한국형)</span><span id="leoHV"></span></label><input type="range" id="leoH" min="350" max="1200" step="10"></div>' +
@@ -1385,6 +1430,9 @@ const CE = {};
   $('names').addEventListener('change', e => { S.names = e.target.checked; });
   $('leoH').value = S.leoH; $('leoHV').textContent = S.leoH + ' km';
   $('leoH').addEventListener('input', e => { S.leoH = +e.target.value; $('leoHV').textContent = S.leoH + ' km'; if (leoS) buildLEOOrbit(); updateStats(); });
+  for (const k in SHIELD_TYPES) $('shType').add(new Option(SHIELD_TYPES[k].name, k));
+  $('shType').value = S.shieldType; $('shType').addEventListener('change', e => { S.shieldType = e.target.value; build(false); renderShieldCmp(); });
+  renderShieldCmp();
   $('shT').addEventListener('change', e => { S.shieldTemp = e.target.checked; applyShieldTemp(); });
   $('nasa').addEventListener('change', e => { S.nasa = e.target.checked; build(false); });
   $('auto').addEventListener('change', e => { S.auto = e.target.checked; });

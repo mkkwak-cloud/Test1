@@ -98,7 +98,7 @@ for (const m of ['A', 'B', 'C', 'J', 'K']) {
   check(c.rayGroup.visible, m + ' 완료 시 광선 표시');
   T.S.t = 0.3; T.frame(5000); check(m === 'B' || !c.rayGroup.visible, m + ' 전개 중 광선 숨김');
   // 파라미터 변경 시나리오
-  for (const patch of [{ D: 12 }, { seg: 0.8 }, { fn: 2.2 }, { hole: false }, { D: 30, seg: 3 }, { lambda: 10 }]) {
+  for (const patch of [{ D: 12 }, { seg: 0.8 }, { fn: 2.2 }, { hole: false }, { D: 30, seg: 3 }, { lambda: 10 }, { shieldType: 'saltus', shieldTemp: true }, { shieldType: 'vgroove' }, { shieldType: 'jwst', shieldTemp: false }]) {
     Object.assign(T.S, patch); T.build(false); T.S.t = 1; T.frame(9000);
   }
   T.setView('l2'); T.frame(9100); T.setView('leo'); T.frame(9150); T.frame(21000); T.setView('earth'); T.frame(9200); T.S.t = 0.4; T.build(false); T.frame(9300); T.setView('tel');

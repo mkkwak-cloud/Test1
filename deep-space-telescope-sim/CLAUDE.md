@@ -80,3 +80,8 @@ python3 -m http.server 8000         # 실행: http://localhost:8000/deep-space-t
 - `calc.js`: `TARGETS`(태양형·61 Cyg A·ε Ind A), `targetStar`(EEID a=√L, 흑체 반지름, Ag 태양형 0.2·K형 0.3), `iwaHorizonPc`(백서 Eq. III.14). `detectionBudget`가 별 온도·반지름을 받음. LAUNCHERS에 `f3`.
 - 테스트: 61 Cyg A 1.2×10⁻⁹·109 mas, ε Ind A 6.9×10⁻¹⁰·137 mas, 지구 쌍둥이 10.3/15.4 pc, 목성 쌍둥이 53.5 pc 재현.
 - `main.js`: K 모드 진입 시 IWA 3, 검출 대상 61 Cyg A, 원시 대비 10⁻⁸, 코로나그래프 OWA 20λ/D. 검출 예산에 대상 선택·IWA 밖 최대 거리. 부경 위치 슬라이더 최대 30 %.
+
+## 차양막 비교 (2026-10-09)
+- `calc.js` `SHIELD_TYPES`: JWST(NASA 공개값 · 층 면적은 SALTUS 논문 표 10), SALTUS(Harding 외 arXiv:2405.12394 — 2겹 직사각 48.5×19.2/50×20 m, CP1 12.7 µm, 간격 ~2 m, 145 kg, M1 <45 K), V-groove(FOSSIL arXiv:2608.13185 — MLI + 3단 ~130/90/50 K + 25 K 능동, Planck 계승). V-groove는 `pubT`로 공개 온도를 그대로 씀.
+- `main.js`: 패널 "차양막 비교" 표(공개 수치 + 이 시뮬 모델 값)와 3D 차양막 종류 선택(`S.shieldType`, J 모드는 항상 JWST). SALTUS형 = 1.43D × 3.57D 직사각 2겹(간격 0.14D), V-groove형 = 기울인 원판 3단. 층 메시는 `userData.bs`(기본 스케일)로 전개 애니메이션과 호환.
+- 주의: SALTUS 2겹에 JWST 보정 모델을 그대로 쓰면 ~209 K로 실제(<45 K)와 다름 — 자세(태양선 90°)·대면적·층 간격·고방출 뒷면이 모델에 없음. 표 주석에 명시.

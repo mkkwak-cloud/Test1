@@ -13,6 +13,8 @@
 - 지구형 행성 검출 예산 (Turyshev arXiv:2609.32023 단순화, 논문 수치 재현 테스트).
 - 차양막 층별 온도(1차원 복사 평형, JWST 공개 온도 보정) 색 표시.
 - 저궤도(LEO) 배치 뷰(한국형).
+- 한국형을 KASI 3.5mST 백서(arXiv 2609.02571/02577) 기준으로 갱신, 검출 대상 61 Cyg A·ε Ind A.
+- 차양막 비교(JWST vs SALTUS vs V-groove/FOSSIL) 표 + 3D 종류 선택.
 - 자세한 내용은 deep-space-telescope-sim/CLAUDE.md 하단 절들.
 
 ## 다음 할 일

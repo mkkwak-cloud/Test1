@@ -1,0 +1,61 @@
+# 심우주 망원경 설계·3D 시뮬레이터 — Claude Code 인계 문서
+
+이 폴더는 Claude 앱(클라우드 작업 세션)에서 만든 프로젝트를 Claude Code에서 이어서 개발하기 위한 인계본입니다.
+사용자는 한국어로 소통합니다. **답변과 UI 문구는 한국어**로 작성하세요.
+
+## 무엇인가
+- 브라우저 하나로 도는 3D 시뮬레이터(Three.js r160). 심우주 망원경을 설계 파라미터로 만들고, 전개·조립 과정과 광선 경로·성능 수치를 보여 줌.
+- 모드(탭): A 접이식 전개형(JWST·Roman), B 우주 조립형(iSAT류), C HWO형(오프액시스, EAC1/4/5, 스타셰이드), J 제임스웹 실사(NASA 실제 3D 모델), K 한국형 우주망원경(3.5 m·LEO, 한정열 외 2021 제안안).
+- 뷰: 망원경 / 태양·지구·달·L2(절차적 실사 텍스처, 달 위상) / 지구에서 본 심우주(지구 표면 시점, JWST가 L2에 있음).
+- 개략 설계 도구이며 정밀 구조·열·광학 해석이 아님. 광학은 단순 카세그레인 근사(JWST 실제는 3반사경).
+
+## 파일 구조
+| 파일 | 역할 |
+|---|---|
+| `calc.js` | 순수 계산 모듈(육각 분할거울 배치, 포물면/쌍곡면 광선추적, 성능·발사체 적합성, 프리셋, EAC, 발사체 목록). `export` 사용 |
+| `main.js` | 앱 전체(씬, 모델 생성 `build()`, 전개 애니메이션 `applyT()`, 광선/광자, UI 패널, L2·지구 뷰, NASA 모델 로더 `loadNasa()`) |
+| `template_core.html` | `<title>`·`<style>`·DOM 뼈대. `/*CALC*/`, `/*MAIN*/` 자리에 코드가 들어감 |
+| `assemble.py` | 빌드: `artifact.html`(Claude 아티팩트용 조각), `deep-space-telescope-sim.html`(단독 실행용 전체 문서), `_module_check.mjs`(문법·테스트용) 생성 |
+| `test_calc.mjs` | 계산 검증(반사 법칙 오차 ~1e-15 등) |
+| `test_smoke.mjs` | Three.js·DOM 스텁으로 전 모드·뷰를 구동하는 스모크 테스트 |
+| `jwstB.json` + `jwstB.gz.b64.txt` | NASA JWST (B) 모델을 Draco 해제 → 위치 Int16·법선 Int8 양자화 → gzip → base64 텍스트로 만든 데이터(재질 그룹 36개, 약 10만 삼각형, 단위 m, y 위, 망원경 시선 +z) |
+| `tools/decode.cjs` | 원본 GLB(Draco) → 위 데이터 변환 스크립트. three.js r160의 `examples/jsm/libs/draco/gltf/draco_decoder.js` 필요 |
+| `tools/shot2.py`, `shot3.py` | Playwright 헤드리스 크롬 스크린샷 검증(로컬 서버 8766 가정) |
+| `dist/` | 마지막 빌드 결과 |
+
+## 빌드·테스트·실행
+```bash
+python3 assemble.py                 # 빌드
+node --check _module_check.mjs      # 문법 확인
+node test_calc.mjs && node test_smoke.mjs
+python3 -m http.server 8000         # 실행: http://localhost:8000/deep-space-telescope-sim.html
+```
+- 단독 HTML은 Three.js를 `cdn.jsdelivr.net`(three@0.160.0)에서 불러오므로 **인터넷 필요**.
+- NASA 모델 데이터는 `fetch`로 읽으므로 **로컬 서버로 열어야** 함(file:// 로 열면 자동으로 근사 모델로 대체).
+- 3D 렌더링 확인은 반드시 실제 브라우저(또는 Playwright 스크린샷)로 할 것. 스모크 테스트는 렌더 결과를 보지 못함.
+
+## 배포 제약(Claude 아티팩트로 올릴 때)
+- 외부 스크립트는 cdnjs / jsdelivr(npm) / unpkg 등 허용 CDN만. 그 외 fetch·이미지·모델 외부 로드 불가 → import map, Three addons(OrbitControls, GLTFLoader 등)를 쓰지 않고 자체 `Orbit` 카메라·자체 바이너리 로더를 씀.
+- 함께 올릴 수 있는 파일 형식 제한(.bin 불가) → 모델 데이터를 gzip+base64 `.txt`로 배포하고 `DecompressionStream('gzip')`으로 해제.
+- 아티팩트 URL: 사용자의 Claude 앱 "심우주 망원경 시뮬레이터"(비공개).
+
+## 지금까지의 결정·사용자 요청 이력(요약)
+- 설명 팝업은 화면 터치 시 닫힘, ⓘ 버튼으로 다시 봄.
+- 차양막: 노란색이 싫다는 피드백 → 은빛·연보라 금속, JWST 실제 치수 14.162 × 21.197 m, 연 모양 막(처짐·잔주름·테두리).
+- 태양전지판: JWST형(5장 단일 고정 배열, 20° 기울임) / Roman형 SASS(중앙 2 + 외곽 4 전개). 폭은 추정값.
+- 태양·지구·달: 위성사진 이미지를 쓸 수 없어 절차적 텍스처(대륙·구름·대기·크레이터·태양 입상). 지구·달 지름비만 실제.
+- HWO: arXiv 2601.11803, 2607.02773 반영(EAC, ≤1e-10 대비, pm 안정성, 질량 한도). FLUTE 액체거울(arXiv 2507.02812)은 링크만.
+- 한국형: 3.5 m, 700 mm × 18장, Korsch, 0.3–1.0 µm, LEO, 3–4 t, 1–2 kW(모두 초안). 발사체 가용폭 4.0 m는 가정값.
+- 사용자 선호: 작업 결과는 Google Drive "0. 작업용 폴더"에 저장(하위 폴더 "심우주 망원경 시뮬레이터").
+
+## 다음 할 일 후보(사용자에게 제안했던 것)
+1. 별 회절상(PSF) 계산·표시 — 육각 분할거울의 6+2 회절 스파이크, 정렬 오차 슬라이더.
+2. 차양막 층별 온도(복사 평형 개략) 색 표시.
+3. 저궤도(LEO) 배치 뷰 — 한국형 모드용(지구 상공 수백 km, 약 90분 주기).
+4. JWST 3반사경(TMA) 광선추적, L2 헤일로 궤도 3체 운동 적분, 실제 전개 순서(약 29일) 재생.
+5. NASA (A) 모델(약 49만 삼각형, 부품별 노드 이름 있음)로 부품 단위 전개 애니메이션 — 용량·성능 검토 필요.
+
+## NASA 모델 출처
+- GitHub `nasa/NASA-3D-Resources` → `3D Models/James Webb Space Telescope (B)/James Webb Space Telescope (B).glb` (KHR_draco_mesh_compression).
+- 받기: `git clone --depth 1 --filter=blob:none --no-checkout` 후 sparse-checkout으로 해당 파일만(저장소 전체는 수 GB).
+- 이용 조건은 NASA 3D Resources 안내를 확인할 것.

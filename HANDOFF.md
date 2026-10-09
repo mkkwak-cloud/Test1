@@ -8,11 +8,16 @@
 - 테스트: `node test_calc.mjs && node test_smoke.mjs`
 
 ## 2026-10-09 추가
-- 별 회절상(PSF) + 분할경 piston/tip-tilt 오차 슬라이더 구현(논문 arXiv:2608.16479, 2607.28393 반영). 자세한 내용은 CLAUDE.md "PSF" 절.
+- 별 회절상(PSF) + 분할경 piston/tip-tilt 오차 슬라이더 (arXiv:2608.16479, 2607.28393).
+- 코로나그래프 암부 대비(이상적 모델)·10⁻¹⁰ 허용 오차.
+- 지구형 행성 검출 예산 (Turyshev arXiv:2609.32023 단순화, 논문 수치 재현 테스트).
+- 차양막 층별 온도(1차원 복사 평형, JWST 공개 온도 보정) 색 표시.
+- 저궤도(LEO) 배치 뷰(한국형).
+- 자세한 내용은 deep-space-telescope-sim/CLAUDE.md 하단 절들.
 
 ## 다음 할 일
 - 자세한 목록과 그간의 결정 사항은 `deep-space-telescope-sim/CLAUDE.md` 참고.
-- 후보: 별 회절상(PSF), 차양막 층별 온도, 저궤도(LEO) 배치 뷰, JWST 3반사경 광선추적.
+- 후보: JWST 3반사경(TMA) 광선추적, L2 헤일로 궤도 3체 적분, 실제 APLC 마스크, 분할경별 허용 오차 맵(PASTIS).
 
 ## 이전 기록 (2026-10-08)
 - 연결 확인용 테스트 저장소로 시작(README.md, HANDOFF.md). 첫 저장 "시작".

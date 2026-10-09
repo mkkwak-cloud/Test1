@@ -130,3 +130,12 @@ for (const m of ['A', 'B', 'C']) {
   for (let i = 0; i < 5; i++) out += p.fEdge * p.eAl * ((i > 0) + (i < 4)) * u[i];   // 가장자리 방출
   eq(out / r.qIn, 1, '차양막 에너지 보존(흡수 = 방출)', 1e-9);
 }
+
+// 8) 저궤도: 600 km 원궤도 주기·속도·태양동기 경사
+{
+  const o = C.leoOrbit(600);
+  eq(o.periodMin, 96.7, `LEO 600 km 주기(분) — 식 ${o.eclipseMin.toFixed(1)}분, 하늘 가림 ${(o.skyBlocked * 100).toFixed(0)}%`, 0.1);
+  eq(o.vKms, 7.56, 'LEO 600 km 속도(km/s)', 0.01);
+  eq(o.ssoIncDeg, 97.8, '태양동기 경사(°)', 0.1);
+  eq(C.leoOrbit(400).periodMin, 92.6, 'ISS 고도 400 km 주기(분)', 0.1);
+}

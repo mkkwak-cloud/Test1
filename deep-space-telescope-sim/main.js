@@ -70,7 +70,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false, leoH: 600 };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -537,7 +537,7 @@ function build(fit = true) {
     }
   }
   if (S.view === 'tel') { if (fit) fitCamera(); else { holder.position.set(0, 0, 0); holder.rotation.set(0, 0, 0); holder.scale.setScalar(1); } }
-  else applyHolderL2();
+  else if (S.view === 'leo') applyHolderLEO(); else applyHolderL2();
   applyT(S.t);
   applyShieldTemp();
   updateStats();
@@ -691,6 +691,12 @@ function updateStats() {
     rows.push([`차양막 ${ctx.shield.nL}겹 온도(개략)`, sh.T.map(t => t.toFixed(0)).join(' → ') + ' K'],
       ['  태양 흡수 → 망원경 쪽 방출', `${sh.qIn.toFixed(0)} → ${sh.qLeak < 0.1 ? (sh.qLeak * 1000).toFixed(1) + ' m' : sh.qLeak.toFixed(2) + ' '}W/m² (${(sh.qIn / sh.qLeak).toExponential(0)}배 감쇠)`]);
     if (S.korea) rows.push(['  (저궤도 참고)', '지구 적외선·알베도 미포함 — L2 기준 값']);
+  }
+  if (S.korea) {
+    const lo = leoOrbit(S.leoH);
+    rows.push([`저궤도 ${S.leoH} km`, `주기 ${lo.periodMin.toFixed(1)}분 · ${lo.vKms.toFixed(2)} km/s · 하루 ${lo.orbitsPerDay.toFixed(1)}바퀴`],
+      ['  식(그림자) 최대 · 하늘 가림', `${lo.eclipseMin.toFixed(1)}분/궤도 · 지구가 하늘의 ${(lo.skyBlocked * 100).toFixed(0)}%`],
+      ['  태양동기 궤도 경사', `${lo.ssoIncDeg.toFixed(1)}°`]);
   }
   rows.push(['전지판 면적 / 발전(개략)', `${ctx.solarArea.toFixed(1)} m² / ${(ctx.solarArea * 0.25).toFixed(1)} kW`]);
   rows.push(['거울 질량(개략)', fmtM(st.mMirror)], ['총 질량(개략)', fmtM(st.mTotal)]);
@@ -861,6 +867,7 @@ const CE = {};
     '<div class="chk" id="ssRow"><input type="checkbox" id="ssh"><label for="ssh">스타셰이드(별도 우주선) 표시</label></div>' +
     '<h2>표시</h2><div class="chk"><input type="checkbox" id="rays" checked><label for="rays">광선 경로</label></div>' +
     '<div class="chk" id="nasaRow"><input type="checkbox" id="nasa" checked><label for="nasa">NASA 실제 3D 모델 사용 <span id="nasaSt" style="color:var(--mu)"></span></label></div>' +
+    '<div class="row"><label><span>저궤도 고도 (🛰 LEO 뷰·한국형)</span><span id="leoHV"></span></label><input type="range" id="leoH" min="350" max="1200" step="10"></div>' +
     '<div class="chk"><input type="checkbox" id="shT"><label for="shT">차양막 층별 온도 색 표시</label></div>' +
     '<div class="chk"><input type="checkbox" id="names" checked><label for="names">부품 이름</label></div>' +
     '<div class="chk"><input type="checkbox" id="phot" checked><label for="phot">광자 애니메이션</label></div>' +
@@ -898,6 +905,8 @@ const CE = {};
   $('rays').addEventListener('change', e => { S.rays = e.target.checked; });
   $('phot').addEventListener('change', e => { S.photons = e.target.checked; });
   $('names').addEventListener('change', e => { S.names = e.target.checked; });
+  $('leoH').value = S.leoH; $('leoHV').textContent = S.leoH + ' km';
+  $('leoH').addEventListener('input', e => { S.leoH = +e.target.value; $('leoHV').textContent = S.leoH + ' km'; if (leoS) buildLEOOrbit(); updateStats(); });
   $('shT').addEventListener('change', e => { S.shieldTemp = e.target.checked; applyShieldTemp(); });
   $('nasa').addEventListener('change', e => { S.nasa = e.target.checked; build(false); });
   $('auto').addEventListener('change', e => { S.auto = e.target.checked; });
@@ -932,11 +941,12 @@ for (const m of ['A', 'B', 'C', 'J', 'K']) {
 }
 const vb = document.createElement('button'); vb.className = 'btn'; vb.textContent = '☀🌍🌙 태양·지구·달·L2';
 const eb = document.createElement('button'); eb.className = 'btn'; eb.textContent = '🌍 지구에서 본 심우주';
+const lb = document.createElement('button'); lb.className = 'btn'; lb.textContent = '🛰 저궤도(LEO)';
 const ib = document.createElement('button'); ib.className = 'btn'; ib.textContent = 'ⓘ 설명';
-function toggleView(v) { setView(S.view === v ? 'tel' : v); vb.classList.toggle('on', S.view === 'l2'); eb.classList.toggle('on', S.view === 'earth'); }
-vb.onclick = () => toggleView('l2'); eb.onclick = () => toggleView('earth');
+function toggleView(v) { setView(S.view === v ? 'tel' : v); vb.classList.toggle('on', S.view === 'l2'); eb.classList.toggle('on', S.view === 'earth'); lb.classList.toggle('on', S.view === 'leo'); }
+vb.onclick = () => toggleView('l2'); eb.onclick = () => toggleView('earth'); lb.onclick = () => toggleView('leo');
 ib.onclick = () => { const i = $('info'); i.style.display = i.style.display === 'none' ? '' : 'none'; };
-tabs.appendChild(vb); tabs.appendChild(eb); tabs.appendChild(ib);
+tabs.appendChild(vb); tabs.appendChild(eb); tabs.appendChild(lb); tabs.appendChild(ib);
 for (const [txt, pos, tg] of [['☀ 태양', [-60, 5, 34], [-80, 0, 0]], ['🌍 지구·달', [8, 5, 13], [0, 0, 0]], ['🔭 L2', [24, 4, 9], [16, 0, 0]]]) {
   const cb = document.createElement('button'); cb.className = 'btn camb'; cb.textContent = txt; cb.style.display = 'none';
   cb.onclick = () => { camera.position.set(...pos); controls.target.set(...tg); }; tabs.appendChild(cb);
@@ -1123,13 +1133,16 @@ function galaxyTex(hue) {
 })();
 const INFO_VIEW = {
   l2: '<b>태양·지구·달·L2</b> — 지구(자전축 23.4° 기울기·구름·대기), 달(조석 고정, 위상 변화), 태양과 L2 헤일로 궤도의 망원경입니다. 지구·달 지름비(1 : 0.27)만 실제와 같고 거리는 압축했습니다. 아래 버튼으로 시점을 옮기세요. (표면 질감은 절차적 생성이며 위성사진이 아님)',
+  leo: '<b>저궤도(LEO) 배치</b> — 한국형 우주망원경 제안안처럼 지구 상공 수백 km를 약 90분마다 도는 배치입니다. 지구와 궤도 고도는 실제 축척이고 망원경만 크게 그렸습니다. 태양동기·정오–자정 궤도면이라 매 바퀴 지구 그림자(식)를 지납니다(회색 구간). 망원경은 천정(지구 반대쪽)을 향합니다. ⚙의 "저궤도 고도"로 고도를 바꿀 수 있습니다. L2와 달리 지구가 하늘의 약 30%를 가리고, 낮·밤이 바뀔 때마다 열 환경이 크게 변합니다.',
   earth: '<b>지구에서 본 심우주</b> — 지구 표면에 서서 태양 반대쪽(밤하늘)을 바라본 시점입니다. 가까운 달 → 150만 km 밖 L2의 제임스웹 망원경(JWST 실사 모델) → 수십 광년~130억 광년 천체 순으로 거리가 멀어집니다. 점선 하늘색은 망원경의 관측 시선입니다. 드래그=둘러보기, 핀치/휠=시야각 확대·축소. (거리는 축척 아님)',
 };
 function setView(v) {
   S.view = v;
   if (v === 'earth') { if (!S.jwst) { S.prevMode = S.mode; setMode('J'); } S.t = 1; S.playing = false; syncBar(); }
   else if (S.prevMode && S.jwst) { const pm = S.prevMode; S.prevMode = null; if (v === 'tel') setMode(pm); }
-  if (v === 'l2' && !sem) buildL2(); l2.visible = v === 'l2'; ed.visible = v === 'earth'; controls.look = v === 'earth';
+  if (v === 'l2' && !sem) buildL2(); if (v === 'leo' && !leoS) buildLEO();
+  l2.visible = v === 'l2'; ed.visible = v === 'earth'; leo.visible = v === 'leo'; controls.look = v === 'earth';
+  if (leoS) leoS.info.style.display = v === 'leo' ? '' : 'none';
   if (sem) sem.info.style.display = v === 'l2' ? '' : 'none'; document.querySelectorAll('.camb').forEach(b => { b.style.display = v === 'l2' ? '' : 'none'; });
   camera.fov = 45; camera.updateProjectionMatrix();
   if (v === 'l2') {
@@ -1140,7 +1153,70 @@ function setView(v) {
     applyHolderL2(); sun.position.set(-1, 0.3, 0.4); camera.near = 0.05;
     camera.position.set(0, 0.25, 0); controls.target.set(1, 0.42, 0); camera.fov = 50; camera.updateProjectionMatrix();
     $('info').innerHTML = INFO_VIEW.earth; $('info').style.display = '';
+  } else if (v === 'leo') {
+    applyHolderLEO(); sun.position.set(-1, 0, 0); camera.near = 0.05;
+    camera.position.set(-9, 10, 32); controls.target.set(-3, -0.5, 0); camera.updateProjectionMatrix();
+    $('info').innerHTML = INFO_VIEW.leo; $('info').style.display = '';
   } else { sun.position.set(0.4, 1, 0.7); fitCamera(); $('info').innerHTML = INFO[infoKey()]; }
+}
+
+
+// ---------- 저궤도(LEO) 뷰 ----------
+// 지구 반지름·궤도 고도는 실제 축척(장면 단위 LEO_R = 6378 km), 망원경만 과장. 태양은 −x, 궤도면은 태양 방향을 포함(β = 0).
+const leo = new THREE.Group(); leo.visible = false; scene.add(leo);
+const LEO_R = 6, LEO_VIS_S = 24;   // 지구 반지름(장면 단위), 화면상 한 바퀴 시간(초)
+let leoS = null;
+function leoPos(th, a) {   // 궤도 위치: 승교점 = 태양 방향(−x 쪽 시작), 경사 i(태양동기)
+  const inc = leoOrbit(S.leoH).ssoIncDeg * Math.PI / 180;
+  return new V3(-a * Math.cos(th), a * Math.sin(th) * Math.sin(inc), a * Math.sin(th) * Math.cos(inc));
+}
+function buildLEOOrbit() {
+  if (leoS.orbit) { leo.remove(leoS.orbit); leoS.orbit.traverse(o => o.geometry && o.geometry.dispose()); }
+  const o = leoOrbit(S.leoH), a = LEO_R * o.a / R_E, g = new THREE.Group(), N = 240;
+  let seg = [], lit = null;
+  const flush = () => { if (seg.length > 1) g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(seg), new THREE.LineBasicMaterial({ color: lit ? 0x4de3ff : 0x5a6178, transparent: true, opacity: lit ? 0.9 : 0.7 }))); };
+  for (let i = 0; i <= N; i++) {
+    const p = leoPos(i / N * 2 * Math.PI, a), l = !(p.x > 0 && Math.hypot(p.y, p.z) < LEO_R);   // 원통 그림자(+x 쪽)
+    if (lit !== null && l !== lit) { seg.push(p); flush(); seg = [p]; } else seg.push(p);
+    lit = l;
+  }
+  flush();
+  const lab = label(`궤도 고도 ${S.leoH} km · 주기 ${o.periodMin.toFixed(1)}분 · 경사 ${o.ssoIncDeg.toFixed(1)}°`, 0.9);
+  lab.position.set(LEO_R * 0.9, -a - 3.9, 0); g.add(lab);
+  leoS.orbit = g; leoS.a = a; leo.add(g);
+}
+function buildLEO() {
+  leoS = {};
+  // 환경맵 조명을 줄여 태양(−x) 쪽만 밝게 — 낮·밤 경계가 식 구간과 맞도록
+  const earth = new THREE.Mesh(new THREE.SphereGeometry(LEO_R, 128, 80), new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 0.78, metalness: 0, envMapIntensity: 0.04 }));
+  const cloud = new THREE.Mesh(new THREE.SphereGeometry(LEO_R * 1.006, 128, 80), new THREE.MeshStandardMaterial({ map: cloudTexture(), transparent: true, depthWrite: false, roughness: 1, envMapIntensity: 0.04 }));
+  const atm = new THREE.Mesh(new THREE.SphereGeometry(LEO_R * 1.03, 64, 40), new THREE.ShaderMaterial({
+    transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
+    vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vN; void main(){ float i = pow(max(0.0, 0.62 - dot(vN, vec3(0.0,0.0,1.0))), 3.0); gl_FragColor = vec4(0.32,0.58,1.0,1.0) * i * 2.0; }',
+  }));
+  leoS.earth = earth; leoS.cloud = cloud;
+  const sunDir = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new V3(-LEO_R * 3.2, 0, 0), new V3(-LEO_R * 1.25, 0, 0)]), new THREE.LineDashedMaterial({ color: 0xffb84d, dashSize: 0.6, gapSize: 0.4 }));
+  sunDir.computeLineDistances();
+  const ls = label('← 태양 방향', 0.8); ls.position.set(-LEO_R * 2.6, 0.9, 0);
+  const le = label('지구 (궤도 고도와 같은 실제 축척)', 0.9); le.position.set(-LEO_R * 0.9, -LEO_R - 1.4, 0);
+  const lt = label('망원경 (크기 과장)', 0.6); leoS.lt = lt;
+  leo.add(earth, cloud, atm, sunDir, ls, le, lt);
+  buildLEOOrbit();
+  leoS.info = document.createElement('div');
+  leoS.info.style.cssText = 'position:fixed;left:16px;bottom:calc(74px + env(safe-area-inset-bottom,0px));background:var(--pn);border:1px solid var(--bd);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--ink2);display:none';
+  document.body.appendChild(leoS.info);
+}
+function applyHolderLEO() { holder.scale.setScalar(1.3 / ctx.extent); holder.rotation.set(0, 0, 0); }
+const Y_UP = new V3(0, 1, 0);
+function updateLEO(time) {
+  if (!leoS) return;
+  const o = leoOrbit(S.leoH), ph = (time / LEO_VIS_S) % 1, p = leoPos(ph * 2 * Math.PI, leoS.a);
+  holder.position.copy(p); holder.quaternion.setFromUnitVectors(Y_UP, p.clone().normalize());   // 망원경 시선 = 천정
+  leoS.lt.position.copy(p.clone().multiplyScalar(1 + 1.6 / leoS.a));
+  leoS.earth.rotation.y = time * 0.02; leoS.cloud.rotation.y = time * 0.024;
+  const dark = p.x > 0 && Math.hypot(p.y, p.z) < LEO_R, m = ph * o.periodMin;
+  leoS.info.textContent = `궤도 시각 ${m.toFixed(0)} / ${o.periodMin.toFixed(1)}분 · ${dark ? '🌑 지구 그림자(식) — 전력은 배터리' : '☀ 햇빛'} · 화면에서는 한 바퀴 ${LEO_VIS_S}초로 빠르게 표시`;
 }
 
 // ---------- 루프 ----------
@@ -1159,7 +1235,7 @@ function frame(now) {
   }
   syncBar();
   applyT(S.t);
-  if (S.view !== 'tel') updateL2(now / 1000);
+  if (S.view === 'leo') updateLEO(now / 1000); else if (S.view !== 'tel') updateL2(now / 1000);
   updatePhotons(now / 1000);
   controls.autoRotate = S.auto; controls.update();
   renderer.render(scene, camera);

@@ -373,3 +373,16 @@ export function sunshieldTemps(n, o = {}) {
   const T = Array.from(u, v => Math.pow(v / SIGMA, 0.25));
   return { T, qIn: p.aSi * p.S0 * p.cosI, qLeak: p.eAl * u[n - 1] };   // 흡수 태양열, 망원경 쪽으로 나가는 열(W/m²)
 }
+
+// ===== 저궤도(LEO) 원궤도 — 한국형 우주망원경 배치 검토용 =====
+// 주기 T = 2π√(a³/μ), 식(지구 그림자) 최대 시간은 β=0(태양이 궤도면 안)·원통 그림자 근사: 2·asin(R/a)/2π·T
+// 태양동기 경사: cos i = −(a / 12352 km)^3.5 (J2, 원궤도 근사)
+export const MU_E = 398600.4418, R_E = 6378.137;   // 고도는 적도 반지름 기준
+export function leoOrbit(hKm) {
+  const a = R_E + hKm, T = 2 * Math.PI * Math.sqrt(a ** 3 / MU_E), half = Math.asin(R_E / a);
+  return {
+    a, periodMin: T / 60, vKms: Math.sqrt(MU_E / a), eclipseFrac: half / Math.PI, eclipseMin: half / Math.PI * T / 60,
+    earthHalfDeg: half * 180 / Math.PI, skyBlocked: (1 - Math.cos(half)) / 2, orbitsPerDay: 86400 / T,
+    ssoIncDeg: Math.acos(-Math.pow(a / 12352, 3.5)) * 180 / Math.PI,
+  };
+}

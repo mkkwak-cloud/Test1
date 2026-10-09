@@ -1,5 +1,7 @@
 # HANDOFF
 
+> **2026-10-09: 망원경 시뮬레이터는 mkkwak-cloud/solarsystem 저장소로 통합됨** (telescope.html · src/telescope/ · models/jwst/). 앞으로 개발은 그쪽에서 한다. 이 폴더는 원본 기록·Claude 아티팩트 빌드용으로 남김.
+
 ## 현재 상태 (2026-10-09)
 - `deep-space-telescope-sim/` 폴더에 심우주 망원경 설계·3D 시뮬레이터를 올림 (Claude 앱 세션에서 개발한 것을 Claude Code로 인계).
 - 모드: 접이식 전개형 / 우주 조립형 / HWO형 / 제임스웹 실사(NASA 실제 3D 모델) / 한국형 3.5 m(LEO).

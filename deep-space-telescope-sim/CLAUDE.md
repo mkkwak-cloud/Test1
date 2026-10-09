@@ -1,5 +1,7 @@
 # 심우주 망원경 설계·3D 시뮬레이터 — Claude Code 인계 문서
 
+> **2026-10-09: 망원경 시뮬레이터는 mkkwak-cloud/solarsystem 저장소로 통합됨** (telescope.html · src/telescope/ · models/jwst/). 앞으로 개발은 그쪽에서 한다. 이 폴더는 원본 기록·Claude 아티팩트 빌드용으로 남김.
+
 이 폴더는 Claude 앱(클라우드 작업 세션)에서 만든 프로젝트를 Claude Code에서 이어서 개발하기 위한 인계본입니다.
 사용자는 한국어로 소통합니다. **답변과 UI 문구는 한국어**로 작성하세요.
 

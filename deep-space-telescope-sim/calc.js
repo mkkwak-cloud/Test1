@@ -9,6 +9,7 @@ export const LAUNCHERS = {
   sls: { name: 'SLS Block 1B (페어링 8.4m)', usable: 7.5 },
   ss:  { name: 'Starship (적재함 ~8m급)', usable: 7.5 },
   ksl3:{ name: '국내 차세대 발사체(가정 · 가용폭 4.0m)', usable: 4.0 },
+  f3:  { name: '3 m급 페어링 (3.5mST 백서 · 가용폭 2.6m 가정)', usable: 2.6 },
   ng:  { name: 'New Glenn 7m 페어링', usable: 6.4 },
   ss9: { name: 'Starship 9m 페어링(HWO 가정)', usable: 8.4 },
 };
@@ -329,7 +330,7 @@ export function starPhotonFlux(lamNm, dLamNm, dPc, Tstar = 5772, RstarM = 6.957e
 export const G_CORE = Math.PI * Math.PI * 0.49 / 4;   // 측광 구멍 반경 0.7λ/D 의 PSF_pk·Ω
 export function detectionBudget(p) {
   const qe = p.qe ?? 0.2, live = p.live ?? 0.8, cal = (p.calPpt ?? 3.5) * 1e-12;
-  const sf = starPhotonFlux(p.lamNm, p.dLamNm, p.dPc, 5772, 6.957e8, true), g = sf.g;
+  const sf = starPhotonFlux(p.lamNm, p.dLamNm, p.dPc, p.Tstar ?? 5772, p.RstarM ?? 6.957e8, true), g = sf.g;
   const Cstar = sf.flux * p.area * qe;
   const ex = Cstar * p.tauCore, Cp = p.fp * ex, leak = g * Cstar * p.cRaw;
   const Cb = 0.02 * (p.dLamNm / 100) * (p.lamNm / 500) ** 2 + 0.001;
@@ -386,3 +387,18 @@ export function leoOrbit(hKm) {
     ssoIncDeg: Math.acos(-Math.pow(a / 12352, 3.5)) * 180 / Math.PI,
   };
 }
+
+// ===== 검출 대상 별 — 3.5mST 백서 III(arXiv:2609.02577) =====
+// 지구형 행성은 지구와 같은 복사를 받는 거리(EEID) a = √(L/L☉) AU 에 둠. 반지름은 R = √L·(5772/T)² R☉ (흑체 근사).
+// Ag: 태양형은 Turyshev(arXiv:2609.32023)의 0.2, K형 두 별은 백서 대비값(1.2e-9, 6.9e-10)을 재현하는 0.3.
+export const TARGETS = {
+  sun:    { name: '태양형 별 (G2V, 거리 조절)', T: 5772, L: 1, Ag: 0.2, d: null },
+  cyg61A: { name: '61 Cyg A (K5V · 3.49 pc)', T: 4400, L: 0.1444, Ag: 0.3, d: 3.49 },
+  epsIndA:{ name: 'ε Ind A (K5V · 3.64 pc)', T: 4650, L: 0.25, Ag: 0.3, d: 3.64 },
+};
+export function targetStar(key) {
+  const t = TARGETS[key], aAU = Math.sqrt(t.L);
+  return { ...t, aAU, RstarM: 6.957e8 * Math.sqrt(t.L) * (5772 / t.T) ** 2, fp: planetFluxRatio(t.Ag, 6371, aAU, 90) };
+}
+// 행성 궤도 a(AU)가 IWA(λ/D 단위) 밖에 놓이는 최대 거리(pc) — 백서 III Eq.(III.14)
+export const iwaHorizonPc = (aAU, iwaLD, lamNm, D) => aAU / (iwaLD * lamNm * 1e-9 / D * 206264.806);

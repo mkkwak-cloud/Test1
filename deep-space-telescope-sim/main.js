@@ -70,14 +70,15 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false, leoH: 600 };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false, leoH: 600, budTarget: 'sun' };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
-const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
-const KOREA = { D: 3.6, seg: 0.7, fn: 1.3, lambda: 0.6, dens: 25, hole: true, launcher: 'ksl3' };
+const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5mST·KASI' };
+// 3.5mST 백서(KASI 2026, arXiv:2609.02571): 3.5 m·육각 18장·on-axis·시스템 f/4.5(부경 위치 25 %로 맞춤)·0.2–1.5 µm·3 m급 페어링
+const KOREA = { D: 3.5, seg: 0.68, fn: 1.3, delta: 25, bfrac: 0.15, lambda: 0.55, dens: 25, hole: true, launcher: 'f3' };
 const infoKey = () => S.jwst ? 'J' : S.korea ? 'K' : S.mode;
 const INFO = {
-  K: '<b>한국형 우주망원경(제안안)</b> — 한정열 외(2021, J. Space Technol. Appl.)가 제안한 개념: 주경 3.5 m(700 mm 분할거울 18장), Korsch형 광학, 0.3~1.0 µm, 시야 10~30′, 저궤도(LEO, 지구 상공 수백 km), 탑재체 3~4 t · 전력 1~2 kW, 국내 발사체 가정. 제원은 모두 "확정 전 초안"이며, 광학은 단순 카세그레인 근사입니다. 저궤도라 대형 차양막 대신 작은 차광막을 씁니다.',
+  K: '<b>한국형 3.5 m 분할경 로봇 우주망원경(3.5mST)</b> — 한국천문연구원 등 백서(2026, arXiv 2609.02571·2609.02577, 개념 연구 단계·예산 미확보): 주경 3.5 m(육각 18장, on-axis, f/4.5), 0.2~1.5 µm, 광시야 10′~30′, 분광 R~1000(옵션 R~5000), 전용 코로나그래프(원시 대비 10⁻⁸ 목표, 후처리 10⁻⁹, IWA 3λ/D = 97 mas@550 nm, OWA 20λ/D), 수명 10년, 약 3 m 페어링. 궤도는 L2 또는 지구궤도 검토 중(🛰 LEO 뷰로 지구궤도안 확인). 지구형 행성은 태양형 별 주위(10⁻¹⁰)보다 늦은 K형 별 61 Cyg A·ε Ind A가 유력 대상입니다. 이전 제안(한정열 외 2021: 0.3~1.0 µm·LEO)도 참고.',
   J: '<b>제임스웹(JWST) 실물 재현</b> — NASA 3D Resources의 실제 3D 모델(약 10만 폴리곤, 실제 m 단위)을 표시합니다. 2021.12.25 발사(Ariane 5), 태양–지구 L2 헤일로 궤도. 금도금 베릴륨 육각 거울 18장(대변 1.32 m, 구경 6.5 m, 집광 25.4 m²) · 3개 지지대(삼각) 부경 · 5겹 칼톤 차양막(약 21.2×14.2 m) · 5장 단일 전지판(20° 기울임). ▶ 재생: 전지판 → 부경 지지대 → 차양막 → 날개 거울. 광학은 단순 카세그레인 근사(실제는 3반사경).',
   A: '<b>접이식 전개형</b> — 날개 거울·부경 붐·차광막을 접어 로켓 한 대에 싣고, 우주에서 펼칩니다(JWST·Roman 방식). ▶ 재생: 태양전지판 → 부경 붐 → 차광막 → 날개 거울 → 거울 정렬 순서.',
   B: '<b>우주 조립형</b> — 분할거울을 여러 번에 나눠 발사하고 궤도에서 로봇팔이 하나씩 조립합니다(NASA iSAT류 개념). 회색 윤곽은 아직 조립되지 않은 자리입니다.',
@@ -684,7 +685,8 @@ function updateStats() {
   else rows.push(['중앙 가림', '없음 (오프액시스)']);
   rows.push(['회절 한계 1.22λ/D', `${st.mas.toFixed(1)} 밀리초각`], ['파면 정밀도(λ/14)', `${st.wfe.toFixed(0)} nm rms`]);
   if (S.mode === 'C') rows.push(['코로나그래프 대비', '≤10⁻¹⁰ (96×96 변형거울)'], ['파면 안정성 목표', '피코미터(pm)급'], ['열 안정성 목표', '~mK급 (ULE 유리, 약 20°C)'], ['질량 한도(공개 자료)', `≤${S.massCap || 25} t`]);
-  if (S.korea) rows.push(['제안 제원(초안)', '3.5 m · 700mm×18장 · 0.3~1.0 µm · 3~4 t · 1~2 kW · LEO']);
+  if (S.korea) rows.push(['3.5mST 백서 제원', '3.5 m · 육각 18장 · f/4.5 · 0.2~1.5 µm · 시야 10′~30′ · 10년 · 3 m 페어링'],
+    ['  코로나그래프 목표(백서)', '원시 10⁻⁸ · 후처리 10⁻⁹ · IWA 3λ/D · OWA 20λ/D'], ['  궤도', 'L2 또는 지구궤도 (검토 중)']);
   if (S.jwst) rows.push(['실제 JWST 제원', '구경 6.5 m · 거울 18장 · 집광 25.4 m² · 차양막 21.2×14.2 m · 약 6.2 t']);
   if (ctx.shield) {
     const sh = sunshieldTemps(ctx.shield.nL);
@@ -731,7 +733,7 @@ function updatePSF() {
   const key = [ctx.n, S.seg, S.hole, S.mode, hasStruts, ctx.Deff.toFixed(3)].join('|');
   if (psfPerfect.key !== key) psfPerfect = { key, f: psfFromPupil(pup, false) };
   const pf = psfPerfect.f;
-  const IWA = S.iwa, OWA = 12, cor = coronagraphFromPupil(pup);
+  const IWA = S.iwa, OWA = S.korea ? 20 : 12, cor = coronagraphFromPupil(pup);   // 3.5mST 백서 OWA 20λ/D
   const cDZ = annulusMean(cor.img, PSF_N, PSF_DPX, IWA, OWA), cNear = annulusMean(cor.img, PSF_N, PSF_DPX, IWA, IWA + 1);
   $('iwaV').textContent = IWA.toFixed(1) + ' λ/D';
   // 그리기: 원시 PSF는 10⁻⁵~1, 코로나그래프 후는 (암부 평균 ×10⁻²)~(암부 평균 ×10⁴) 로그 스케일
@@ -804,33 +806,36 @@ function applyShieldTemp() {
 // ---------- 지구형 행성 검출 예산 ----------
 // Turyshev(arXiv:2609.32023) 단순화: 두 롤 ADI, 지구형 행성(Ag 0.2, 1 au, 위상각 90°), 탐색 30,000곳·오경보 10⁻³·검출 99%.
 // 원시 대비 = 설계 바닥 3×10⁻¹⁰(논문 Table VI 가시광) + 정적 분할 오차(위 PSF). 롤 간 안정도 = 결맞음 혼합 + 2차 항.
-const C_FLOOR = 3e-10;
+const C_FLOOR = 3e-10, C_FLOOR_K = 1e-8;   // HWO형 설계 바닥(Turyshev Table VI) / 3.5mST 원시 대비 목표(백서)
 function updateBudget() {
   const P = ctx.psf; if (!P || !$('budStats')) return;
   const tH = Math.pow(10, S.tLog), drNm = Math.pow(10, S.drLog) * 1e-6;   // 드리프트 슬라이더: 로그(fm)
   $('dpcV').textContent = S.dPc.toFixed(1) + ' pc'; $('thV').textContent = tH.toFixed(0) + ' h';
   $('drV').textContent = fmtOpd(drNm); $('tauV').textContent = S.tau.toFixed(2);
-  const lamNm = S.lambda * 1000, cRaw = C_FLOOR + P.cDZ;
+  const tg = targetStar(S.budTarget), dPc = tg.d ?? S.dPc;
+  $('dpcRow').style.display = tg.d ? 'none' : '';
+  const lamNm = S.lambda * 1000, cRaw = (S.korea ? C_FLOOR_K : C_FLOOR) + P.cDZ;
   const cD = P.cDZ * (drNm / P.tot) ** 2, cStab = contrastStability(cRaw, cD);
-  const base = { area: ctx.Aeff || Math.PI * ctx.Deff ** 2 / 4, lamNm, dLamNm: 0.2 * lamNm, dPc: S.dPc, aAU: 1, cRaw, cStab, tauCore: S.tau, tWallH: tH, fp: planetFluxRatio() };
+  const base = { area: ctx.Aeff || Math.PI * ctx.Deff ** 2 / 4, lamNm, dLamNm: 0.2 * lamNm, dPc, aAU: tg.aAU, Tstar: tg.T, RstarM: tg.RstarM, cRaw, cStab, tauCore: S.tau, tWallH: tH, fp: tg.fp };
   const b = detectionBudget(base), dLim = limitingDistance({ ...base, dPc: 5 });
   const cdA = -cRaw + Math.sqrt(cRaw * cRaw + b.cStabAllow ** 2), drA = P.cDZ > 0 ? P.tot * Math.sqrt(cdA / P.cDZ) : Infinity;
   const iwaMas = P.IWA * P.lamD, owaMas = P.OWA * P.lamD, geoOk = b.sepMas >= iwaMas && b.sepMas <= owaMas;
   const ppt = v => (v * 1e12).toFixed(v * 1e12 < 10 ? 2 : 1) + ' ppt';
   const rows = [
-    ['행성 밝기비 (지구형, 직각 위상)', ppt(b.fp)],
+    ['행성 밝기비 (지구형, 직각 위상)', `${b.fp.toExponential(2)} (Ag ${tg.Ag}, a ${tg.aAU.toFixed(2)} AU)`],
     ['행성 이격 / 암부 범위', `${b.sepMas.toFixed(0)} mas / ${iwaMas.toFixed(0)}–${owaMas.toFixed(0)} mas`, geoOk ? 'ok' : 'bad'],
     ['별 · 행성 전자율', `${b.Cstar.toExponential(2)} · ${b.Cp.toFixed(3)} e⁻/s`],
     ['원시 대비 (설계 바닥 + 정적 오차)', `${cRaw.toExponential(2)}`],
+    ['IWA 밖에 들어오는 최대 거리', `${iwaHorizonPc(tg.aAU, P.IWA, lamNm, ctx.Deff).toFixed(1)} pc (현재 ${dPc.toFixed(2)} pc)`],
     ['필요 FRN (99% 검출)', ppt(b.frnReq)],
     ['FRN 광자 · 스펙클 · 보정', `${ppt(b.frnPh)} · ${ppt(b.frnSt)} · 3.5`],
     ['FRN 합계 → 검출 확률', `${ppt(b.frn)} → ${(b.power * 100).toFixed(1)} %`, b.power >= 0.99 ? 'ok' : 'bad'],
     ['99% 검출 필요 관측 시간', isFinite(b.tReqH) ? `${b.tReqH.toFixed(b.tReqH < 10 ? 1 : 0)} h` : '불가 (안정도·보정 천장)', b.tReqH <= tH ? 'ok' : 'bad'],
     ['허용 대비 안정도 · 드리프트', b.specAllow > 0 ? `${b.cStabAllow.toExponential(2)} · ${fmtOpd(drA)}` : '없음 (광자+보정만으로 초과)'],
-    [`${tH.toFixed(0)} h 한계 거리 (광학 잔여 0)`, `${dLim.toFixed(1)} pc`],
+    [`${tH.toFixed(0)} h 한계 거리 (광학 잔여 0)`, tg.d ? '— (고정 대상)' : `${dLim.toFixed(1)} pc`],
   ];
   $('budStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td class="${r[2] || ''}">${r[1]}</td></tr>`).join('') + '</table>' +
-    `<p class="note">근거: <a href="https://arxiv.org/abs/2609.32023" target="_blank" rel="noopener" style="color:var(--ac2)">Turyshev, arXiv 2609.32023</a>의 해석적 모델을 단순화했습니다(6 m·500 nm·5 pc 기준값 재현: 광자 FRN 8.80 ppt, 한계 거리 8.11 pc). 대역 20%, QE 0.2, 하늘 배경 0.02 e⁻/s, 보정 잔차 3.5 ppt, 측광 구멍 0.7λ/D. 집광면적은 위 설계의 유효 집광면적을 씁니다. 드리프트→대비 안정도는 이상적 코로나그래프와 무작위 위상 결맞음 혼합(√(2·C_raw·c_d + c_d²)) 근사라 실제 자코비안 기반 값과 다를 수 있습니다. 스펙클 FRN은 롤 사이에 평균되지 않는 잔여로 봅니다(보수적).</p>`;
+    `<p class="note">근거: <a href="https://arxiv.org/abs/2609.32023" target="_blank" rel="noopener" style="color:var(--ac2)">Turyshev, arXiv 2609.32023</a>의 해석적 모델을 단순화했습니다. 61 Cyg A·ε Ind A는 <a href="https://arxiv.org/abs/2609.02577" target="_blank" rel="noopener" style="color:var(--ac2)">3.5mST 백서 III</a>의 지구형(EEID) 대상(대비 1.2×10⁻⁹·6.9×10⁻¹⁰ 재현)이며 별 반지름은 흑체 근사입니다. 한국형 모드는 원시 대비를 백서 목표 10⁻⁸로 둡니다(6 m·500 nm·5 pc 기준값 재현: 광자 FRN 8.80 ppt, 한계 거리 8.11 pc). 대역 20%, QE 0.2, 하늘 배경 0.02 e⁻/s, 보정 잔차 3.5 ppt, 측광 구멍 0.7λ/D. 집광면적은 위 설계의 유효 집광면적을 씁니다. 드리프트→대비 안정도는 이상적 코로나그래프와 무작위 위상 결맞음 혼합(√(2·C_raw·c_d + c_d²)) 근사라 실제 자코비안 기반 값과 다를 수 있습니다. 스펙클 FRN은 롤 사이에 평균되지 않는 잔여로 봅니다(보수적).</p>`;
 }
 
 // ---------- UI ----------
@@ -838,7 +843,7 @@ const CONTROLS = [
   ['D', '주경 구경 목표', 'm', 2, 30, 0.1, 'ABC'],
   ['seg', '분할거울 크기(대변)', 'm', 0.5, 3, 0.05, 'ABC'],
   ['fn', '주경 초점비 f/', '', 0.8, 3, 0.05, 'ABC'],
-  ['delta', '부경 위치(초점 앞)', '%', 3, 20, 0.5, 'AB'],
+  ['delta', '부경 위치(초점 앞)', '%', 3, 30, 0.5, 'AB'],
   ['bfrac', '초점면 깊이(×D)', '', 0.15, 0.9, 0.01, 'AB'],
   ['lambda', '관측 파장(로그)', 'µm', -0.8, 1.5, 0.01, 'ABC', true],
   ['dens', '거울 면밀도', 'kg/m²', 8, 120, 1, 'ABC'],
@@ -855,7 +860,8 @@ const CE = {};
     '<div class="chk" id="strutRow"><input type="checkbox" id="strutC" checked><label for="strutC">부경 지지대 3개 그림자 포함</label></div>' +
     '<div id="psfStats"></div>' +
     '<h2>지구형 행성 검출 예산 (HWO OS-1 단순화)</h2>' +
-    '<div class="row"><label><span>별까지 거리 (태양형 별)</span><span id="dpcV"></span></label><input type="range" id="dpc" min="2" max="20" step="0.1"></div>' +
+    '<div class="row"><label><span>대상 별</span></label><select id="budT"></select></div>' +
+    '<div class="row" id="dpcRow"><label><span>별까지 거리 (태양형 별)</span><span id="dpcV"></span></label><input type="range" id="dpc" min="2" max="20" step="0.1"></div>' +
     '<div class="row"><label><span>관측 시간 (전체, 가동률 80%)</span><span id="thV"></span></label><input type="range" id="th" min="1" max="3" step="0.01"></div>' +
     '<div class="row"><label><span>롤 사이 분할경 드리프트 (rms)</span><span id="drV"></span></label><input type="range" id="dr" min="0" max="4" step="0.05"></div>' +
     '<div class="row"><label><span>행성 코어 처리율 τ</span><span id="tauV"></span></label><input type="range" id="tau" min="0.02" max="0.4" step="0.01"></div>' +
@@ -892,6 +898,8 @@ const CE = {};
   for (const k in EACS) { const o = document.createElement('option'); o.value = k; o.textContent = EACS[k].name; es.appendChild(o); }
   es.addEventListener('change', () => { Object.assign(S, EACS[es.value], { eac: es.value }); syncUI(); build(false); });
   $('pis').value = S.pisLog; $('tt').value = S.ttLog; $('iwa').value = S.iwa; $('psfMode').value = S.psfMode;
+  for (const k in TARGETS) $('budT').add(new Option(TARGETS[k].name, k));
+  $('budT').value = S.budTarget; $('budT').addEventListener('change', e => { S.budTarget = e.target.value; updateBudget(); });
   for (const [id, k] of [['dpc', 'dPc'], ['th', 'tLog'], ['dr', 'drLog'], ['tau', 'tau']]) {
     $(id).value = S[k]; $(id).addEventListener('input', e => { S[k] = +e.target.value; updateBudget(); });
   }
@@ -932,6 +940,8 @@ function scheduleBuild() { clearTimeout(bt); bt = setTimeout(() => { build(false
 function setMode(m) {
   const mm = (m === 'J' || m === 'K') ? 'A' : m;
   Object.assign(S, PRESETS[mm], m === 'K' ? KOREA : {}, { mode: mm, jwst: m === 'J', korea: m === 'K', t: 0, playing: true });
+  S.iwa = m === 'K' ? 3 : 3.5; S.budTarget = m === 'K' ? 'cyg61A' : 'sun';
+  if ($('iwa')) { $('iwa').value = S.iwa; $('budT').value = S.budTarget; }
   syncUI(); build(); syncBar();
 }
 const tabs = $('tabs');

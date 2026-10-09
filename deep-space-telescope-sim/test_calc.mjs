@@ -139,3 +139,17 @@ for (const m of ['A', 'B', 'C']) {
   eq(o.ssoIncDeg, 97.8, '태양동기 경사(°)', 0.1);
   eq(C.leoOrbit(400).periodMin, 92.6, 'ISS 고도 400 km 주기(분)', 0.1);
 }
+
+// 9) 3.5mST 백서(arXiv:2609.02577) 수치: 늦은 K형 대상 대비·이격, IWA 거리 한계(Table III.3)
+{
+  const a = C.targetStar('cyg61A'), b = C.targetStar('epsIndA');
+  eq(a.fp * 1e9, 1.2, `61 Cyg A 지구형 대비(10⁻⁹) a=${a.aAU.toFixed(2)} AU`, 0.05);
+  eq(a.aAU / a.d * 1000, 108, '61 Cyg A 이격(mas)', 2);
+  eq(b.fp * 1e10, 6.9, 'ε Ind A 지구형 대비(10⁻¹⁰)', 0.1);
+  eq(b.aAU / b.d * 1000, 137, 'ε Ind A 이격(mas)', 1);
+  eq(C.iwaHorizonPc(1, 3, 550, 3.5), 10.3, '지구 쌍둥이 한계 거리 3λ/D (pc)', 0.05);
+  eq(C.iwaHorizonPc(1, 2, 550, 3.5), 15.4, '지구 쌍둥이 한계 거리 2λ/D (pc)', 0.05);
+  eq(C.iwaHorizonPc(5.2, 3, 550, 3.5), 53.5, '목성 쌍둥이 한계 거리 3λ/D (pc)', 0.1);
+  const bud = C.detectionBudget({ area: 8.5, lamNm: 550, dLamNm: 110, dPc: a.d, aAU: a.aAU, Tstar: a.T, RstarM: a.RstarM, cRaw: 1e-8, cStab: 0, tauCore: 0.12, fp: a.fp });
+  console.log('   3.5mST·61 Cyg A 예시', { 이격mas: +bud.sepMas.toFixed(0), FRN_ppt: +(bud.frn * 1e12).toFixed(1), 검출확률: +bud.power.toFixed(3), 필요시간h: +bud.tReqH.toFixed(0) });
+}

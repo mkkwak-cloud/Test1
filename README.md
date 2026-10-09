@@ -4,3 +4,7 @@ GitHub 연결 확인용 테스트 저장소입니다.
 
 - 목적: Claude 가 이 저장소에 파일을 올리고 GitHub 에 반영되는지 확인
 - 만든 날: 2026-10-08
+
+## 프로젝트
+
+- [`deep-space-telescope-sim/`](deep-space-telescope-sim/) — 심우주 망원경 설계·3D 시뮬레이터 (Three.js). 빌드·실행 방법과 인계 내용은 폴더 안 `CLAUDE.md` 참고.

@@ -7,6 +7,9 @@
 - 빌드: `cd deep-space-telescope-sim && python3 assemble.py` → `python3 -m http.server 8000` → `localhost:8000/deep-space-telescope-sim.html`
 - 테스트: `node test_calc.mjs && node test_smoke.mjs`
 
+## 2026-10-09 추가
+- 별 회절상(PSF) + 분할경 piston/tip-tilt 오차 슬라이더 구현(논문 arXiv:2608.16479, 2607.28393 반영). 자세한 내용은 CLAUDE.md "PSF" 절.
+
 ## 다음 할 일
 - 자세한 목록과 그간의 결정 사항은 `deep-space-telescope-sim/CLAUDE.md` 참고.
 - 후보: 별 회절상(PSF), 차양막 층별 온도, 저궤도(LEO) 배치 뷰, JWST 3반사경 광선추적.

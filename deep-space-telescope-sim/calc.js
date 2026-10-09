@@ -134,3 +134,122 @@ export function fitCheck(mode, P, Deff, xh, N) {
   const nPer = tooBig ? 0 : Math.max(1, Math.floor(0.6 * Math.PI * (usable / 2) ** 2 / (0.5 * SQ3 * P.seg * P.seg)) * 3);
   return { kind: 'asm', usable, ok: !tooBig, nPer, launches: tooBig ? Infinity : Math.ceil(N / nPer) + 1 };
 }
+
+// ===== 별 회절상(PSF) · 분할경 위상 오차 (Fraunhofer 근사: 동공 → FFT) =====
+// 근거: Leboulleux 외(arXiv:2608.16479) — 분할거울 piston/tip/tilt 오차는 분할 1장의 PSF가 만드는 "저차 포락선"
+//   (첫 영점 1.22·N·λ/D, N = 동공 지름 방향 분할 수)에 곱해져 나타남. Sahoo 외(arXiv:2607.28393) — 분할경 허용 오차는 pm 단위.
+export function fft1(re, im, inv) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = 2 * Math.PI / len * (inv ? 1 : -1), wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < h; k++) {
+        const a = i + k, b = a + h;
+        const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+export function fft2(re, im, N, inv) {
+  const rr = new Float64Array(N), ri = new Float64Array(N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) { rr[x] = re[y * N + x]; ri[x] = im[y * N + x]; }
+    fft1(rr, ri, inv);
+    for (let x = 0; x < N; x++) { re[y * N + x] = rr[x]; im[y * N + x] = ri[x]; }
+  }
+  for (let x = 0; x < N; x++) {
+    for (let y = 0; y < N; y++) { rr[y] = re[y * N + x]; ri[y] = im[y * N + x]; }
+    fft1(rr, ri, inv);
+    for (let y = 0; y < N; y++) { re[y * N + x] = rr[y]; im[y * N + x] = ri[y]; }
+  }
+}
+
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// 동공 진폭(A)과 위상(φ, rad) 격자. segs 좌표는 동공 중심 기준(오프액시스는 호출 전에 x0를 빼 둘 것).
+// o: { N, Dpx, lambdaNm, pistonNm, tiptiltNm, seed, struts, strutW }  — 오차는 모두 "파면(OPD) rms", nm
+export function makePupil(segs, s, Deff, o) {
+  const N = o.N || 512, dx = Deff / (o.Dpx || 160), half = s / 2, R = s / SQ3;
+  const A = new Float64Array(N * N), W = new Float64Array(N * N);
+  const rnd = mulberry32(o.seed == null ? 7 : o.seed);
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+  const k = 2 * Math.PI / o.lambdaNm;
+  const nx = [Math.cos(Math.PI / 6), 0, -Math.cos(Math.PI / 6)], nz = [Math.sin(Math.PI / 6), 1, Math.sin(Math.PI / 6)];
+  for (const g of segs) {
+    const pis = (o.pistonNm || 0) * gauss();
+    const tx = (o.tiptiltNm || 0) * gauss() / R, tz = (o.tiptiltNm || 0) * gauss() / R;  // 분할거울 모서리(외접 반경)에서의 OPD 편차 = tiptiltNm rms
+    const i0 = Math.floor((g.x - R) / dx + N / 2), i1 = Math.ceil((g.x + R) / dx + N / 2);
+    const j0 = Math.floor((g.z - R) / dx + N / 2), j1 = Math.ceil((g.z + R) / dx + N / 2);
+    for (let j = Math.max(0, j0); j <= Math.min(N - 1, j1); j++) {
+      for (let i = Math.max(0, i0); i <= Math.min(N - 1, i1); i++) {
+        const px = (i - N / 2) * dx - g.x, pz = (j - N / 2) * dx - g.z;
+        if (Math.abs(px * nx[0] + pz * nz[0]) > half || Math.abs(pz) > half || Math.abs(px * nx[2] + pz * nz[2]) > half) continue;
+        A[j * N + i] = 1; W[j * N + i] = k * (pis + tx * px + tz * pz);
+      }
+    }
+  }
+  if (o.struts) {   // 부경 지지대 3개(120° 간격) — 그림자로 빼냄
+    const w = Math.max(o.strutW || 0.1, dx) / 2;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (!A[j * N + i]) continue;
+      const px = (i - N / 2) * dx, pz = (j - N / 2) * dx;
+      for (let a = 0; a < 3; a++) {
+        const th = Math.PI / 2 + a * 2 * Math.PI / 3, ux = Math.cos(th), uz = Math.sin(th);
+        if (px * ux + pz * uz > 0 && Math.abs(-px * uz + pz * ux) < w) { A[j * N + i] = 0; break; }
+      }
+    }
+  }
+  return { N, A, W, dx };
+}
+
+// 동공 → 초점면 세기(무수차 최대값 = 1로 정규화). 반환 img 는 FFT 중심(0,0)을 N/2로 옮긴 배열
+export function psfFromPupil(pup, aberrated) {
+  const { N, A, W } = pup, re = new Float64Array(N * N), im = new Float64Array(N * N);
+  let sumA = 0, cr = 0, ci = 0;
+  for (let q = 0; q < N * N; q++) {
+    if (!A[q]) continue;
+    const ph = aberrated ? W[q] : 0;
+    re[q] = Math.cos(ph); im[q] = Math.sin(ph); sumA++; cr += re[q]; ci += im[q];
+  }
+  fft2(re, im, N, false);
+  const img = new Float32Array(N * N), norm = 1 / (sumA * sumA);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const sx = (x + N / 2) % N, sy = (y + N / 2) % N, q = sy * N + sx;
+    img[y * N + x] = (re[q] * re[q] + im[q] * im[q]) * norm;
+  }
+  return { img, strehl: (cr * cr + ci * ci) * norm, area: sumA };
+}
+
+// 중심 기준 반경 r(λ/D 단위, 폭 ±hw)의 방위각 평균 세기. 격자 간격 = Dpx/N (λ/D / 픽셀)
+export function radialMean(img, N, Dpx, r, hw = 0.5) {
+  const sc = Dpx / N, c = N / 2; let s = 0, n = 0;
+  const m = Math.ceil((r + hw) / sc) + 1;
+  for (let y = -m; y <= m; y++) for (let x = -m; x <= m; x++) {
+    const rr = Math.hypot(x, y) * sc;
+    if (rr >= r - hw && rr <= r + hw) { s += img[(c + y) * N + c + x]; n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// 지름 방향 분할 수(링 n, 중앙 포함): 2n+1. 수동 강건 조건: N ≤ IWA(λ/D) — Leboulleux 외(2026)
+export const segsAcross = n => 2 * n + 1;
+// 분할 오차 포락선의 첫 영점 반경(λ/D): 1.22·N
+export const envelopeRadius = n => 1.22 * segsAcross(n);
+
+// 문헌 기준값(비교용)
+export const PHASING_REF = [
+  { name: 'JWST 분할 정렬 달성(≈50 nm rms)', nm: 50 },
+  { name: 'HWO 코로나그래프 목표(≈10 pm rms)', nm: 0.01 },
+];

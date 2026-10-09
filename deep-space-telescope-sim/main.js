@@ -70,7 +70,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -690,6 +690,60 @@ function updateStats() {
   else fitTxt = ok ? `모듈 ${fit.nPer}장/회 → 약 ${fit.launches}회 발사` : '분할거울이 적재함보다 큼';
   $('stats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td>${r[1]}</td></tr>`).join('') +
     `<tr><td class="mu">발사체 적합</td><td class="${ok ? 'ok' : 'bad'}">${fitTxt}</td></tr></table>`;
+  schedulePSF();
+}
+
+
+// ---------- 별 회절상(PSF) ----------
+// 근거: Leboulleux 외 arXiv:2608.16479 (분할 오차 포락선 1.22·N·λ/D, N ≤ IWA 이면 수동 강건) ·
+//       Sahoo 외 arXiv:2607.28393 (분할경 허용 오차 pm 수준). Fraunhofer 근사(동공 FFT)이며 코로나그래프는 포함하지 않음.
+const PSF_N = 512, PSF_DPX = 160, PSF_HALF = 16;   // 격자, 동공 지름 픽셀, 표시 반경(λ/D)
+let psfT = null, psfPerfect = { key: '', f: null };
+function schedulePSF() { clearTimeout(psfT); psfT = setTimeout(updatePSF, 140); }
+const fmtOpd = nm => nm >= 1000 ? (nm / 1000).toFixed(1) + ' µm' : nm >= 1 ? nm.toFixed(nm < 10 ? 1 : 0) + ' nm' : (nm * 1000).toFixed(nm < 0.01 ? 1 : 0) + ' pm';
+function updatePSF() {
+  if (!ctx.segs) return;
+  const cv = $('psf'); if (!cv) return;
+  const pisNm = Math.pow(10, S.pisLog) / 1000, ttNm = Math.pow(10, S.ttLog) / 1000;   // 슬라이더: 로그(pm)
+  $('pisV').textContent = fmtOpd(pisNm); $('ttV').textContent = fmtOpd(ttNm);
+  const segs = ctx.segs.map(g => ({ ...g, x: g.x - (ctx.opt.x0 || 0) }));   // 오프액시스는 동공 중심으로 되돌림
+  const lamNm = S.lambda * 1000, hasStruts = !!ctx.opt.cass && S.struts;
+  $('strutRow').style.display = ctx.opt.cass ? '' : 'none';
+  const base = { N: PSF_N, Dpx: PSF_DPX, lambdaNm: lamNm, struts: hasStruts, strutW: Math.max(0.05, 0.015 * ctx.Deff) };
+  const pup = makePupil(segs, S.seg, ctx.Deff, { ...base, pistonNm: pisNm, tiptiltNm: ttNm });
+  const ab = psfFromPupil(pup, true);
+  const key = [ctx.n, S.seg, S.hole, S.mode, hasStruts, ctx.Deff.toFixed(3)].join('|');
+  if (psfPerfect.key !== key) psfPerfect = { key, f: psfFromPupil(pup, false) };
+  const pf = psfPerfect.f;
+  // 그리기: 로그 스케일 10⁻⁵~1
+  const W = 2 * Math.round(PSF_HALF * PSF_N / PSF_DPX) + 1, c0 = PSF_N / 2, h = (W - 1) / 2;
+  cv.width = cv.height = W;
+  const g = cv.getContext('2d'), im = g.createImageData(W, W);
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const v = ab.img[(c0 + y - h) * PSF_N + (c0 + x - h)];
+    const t = Math.min(1, Math.max(0, (Math.log10(v + 1e-12) + 5) / 5)), o = 4 * (y * W + x);
+    im.data[o] = 255 * Math.min(1, t * 2.2); im.data[o + 1] = 255 * Math.min(1, Math.max(0, t * 2.2 - 0.7)); im.data[o + 2] = 255 * Math.min(1, 0.25 + t * 1.2 - Math.max(0, t - 0.6) * 1.6); im.data[o + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  // 수치
+  const r3 = radialMean(ab.img, PSF_N, PSF_DPX, 3), r10 = radialMean(ab.img, PSF_N, PSF_DPX, 10);
+  const p3 = radialMean(pf.img, PSF_N, PSF_DPX, 3), p10 = radialMean(pf.img, PSF_N, PSF_DPX, 10);
+  const tot = Math.hypot(pisNm, ttNm), N = segsAcross(ctx.n), env = envelopeRadius(ctx.n);
+  const mar = Math.exp(-Math.pow(2 * Math.PI * tot / lamNm, 2));
+  const lamD = S.lambda * 1e-6 / ctx.Deff * 206264806;   // λ/D (밀리초각)
+  const ex = e => e < 1e-12 ? '< 10⁻¹²' : e.toExponential(1).replace('e-', '×10⁻').replace('e+', '×10');
+  const rows = [
+    ['Strehl 비 (계산)', `${ab.strehl.toFixed(3)}`],
+    ['  Maréchal exp(−σ²) 근사', `${mar.toFixed(3)} (σ=${fmtOpd(tot)})`],
+    ['λ/D (화면 반경 16λ/D)', `${lamD.toFixed(1)} 밀리초각`],
+    ['무수차 PSF 3λ/D · 10λ/D', `${ex(p3)} · ${ex(p10)}`],
+    ['오차 포함 3λ/D · 10λ/D', `${ex(r3)} · ${ex(r10)}`],
+    ['지름 방향 분할 수 N', `${N}장 (링 ${ctx.n})`],
+    ['분할 오차 포락선 첫 영점', `${env.toFixed(1)} λ/D`],
+  ];
+  $('psfStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td>${r[1]}</td></tr>`).join('') + '</table>' +
+    `<p class="note">오차는 파면(OPD) rms, 분할거울마다 무작위(고정 시드). 비교 기준: JWST 분할 정렬 ≈50 nm rms, HWO 코로나그래프 목표 ≈10 pm rms.
+ 코로나그래프 없는 원시 PSF입니다. 논문 가이드: 목표 IWA(λ/D) ≥ N이면 분할 오차가 암부 대비에 덜 새어 듭니다(IWA 3λ/D → 지름 방향 3장·총 7장 이하가 유리, <a href="https://arxiv.org/abs/2608.16479" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2608.16479</a>). 분할 수가 많을수록 허용 오차가 엄격해지고, 같은 가이드 기준 85장→7장이면 piston 허용치가 최대 약 2배 완화됩니다. 분할경 허용 오차는 pm 수준입니다(<a href="https://arxiv.org/abs/2607.28393" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2607.28393</a>).</p>`;
 }
 
 // ---------- UI ----------
@@ -705,7 +759,13 @@ const CONTROLS = [
 const CE = {};
 (function buildPanel() {
   const pn = $('panel');
-  pn.innerHTML = '<h2>성능 요약</h2><div id="stats"></div><h2>설계 파라미터</h2><div id="sl"></div>' +
+  pn.innerHTML = '<h2>성능 요약</h2><div id="stats"></div>' +
+    '<h2>별 회절상(PSF) · 분할경 위상 오차</h2><canvas id="psf" width="206" height="206" style="width:100%;max-width:260px;aspect-ratio:1;display:block;margin:0 auto;background:#000;border:1px solid var(--bd);border-radius:8px"></canvas>' +
+    '<div class="row"><label><span>분할 거울 piston 오차 (rms)</span><span id="pisV"></span></label><input type="range" id="pis" min="0" max="6" step="0.05"></div>' +
+    '<div class="row"><label><span>분할 거울 tip/tilt 오차 (rms)</span><span id="ttV"></span></label><input type="range" id="tt" min="0" max="6" step="0.05"></div>' +
+    '<div class="chk" id="strutRow"><input type="checkbox" id="strutC" checked><label for="strutC">부경 지지대 3개 그림자 포함</label></div>' +
+    '<div id="psfStats"></div>' +
+    '<h2>설계 파라미터</h2><div id="sl"></div>' +
     '<div class="chk" id="holeRow"><input type="checkbox" id="hole"><label for="hole">중앙 분할거울 제외(부경 광로)</label></div>' +
     '<div class="row" id="eacRow"><label><span>HWO 구성(EAC)</span></label><select id="eac"></select></div>' +
     '<div class="row"><label><span>발사체</span></label><select id="launcher"></select></div>' +
@@ -734,6 +794,10 @@ const CE = {};
   const es = $('eac');
   for (const k in EACS) { const o = document.createElement('option'); o.value = k; o.textContent = EACS[k].name; es.appendChild(o); }
   es.addEventListener('change', () => { Object.assign(S, EACS[es.value], { eac: es.value }); syncUI(); build(false); });
+  $('pis').value = S.pisLog; $('tt').value = S.ttLog;
+  $('pis').addEventListener('input', e => { S.pisLog = +e.target.value; schedulePSF(); });
+  $('tt').addEventListener('input', e => { S.ttLog = +e.target.value; schedulePSF(); });
+  $('strutC').addEventListener('change', e => { S.struts = e.target.checked; schedulePSF(); });
   $('ssh').addEventListener('change', e => { S.starshade = e.target.checked; });
   $('hole').addEventListener('change', e => { S.hole = e.target.checked; scheduleBuild(); });
   $('rays').addEventListener('change', e => { S.rays = e.target.checked; });

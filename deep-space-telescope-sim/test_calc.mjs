@@ -53,3 +53,34 @@ for (const m of ['A', 'B', 'C']) {
   const fit = C.fitCheck(m, P, Deff, 1.5 * Math.sqrt(3) / 2 * (P.seg + P.gap), segs.length);
   console.log('   적합성', JSON.stringify(fit));
 }
+
+// 4) PSF: FFT 항등성, 무수차 Strehl=1, Maréchal 근사, 육각 분할경의 회절 스파이크
+{
+  const re = new Float64Array(64 * 64).map((_, i) => Math.sin(i * 0.37) + 0.3), im = new Float64Array(64 * 64);
+  const e0 = re.reduce((s, v) => s + v * v, 0), r0 = Float64Array.from(re);
+  C.fft2(re, im, 64, false);
+  const e1 = re.reduce((s, v, i) => s + v * v + im[i] * im[i], 0) / (64 * 64);
+  eq(e1 / e0, 1, 'FFT 파스발(에너지 보존)', 1e-9);
+  C.fft2(re, im, 64, true);
+  eq(re[1234] / (64 * 64), r0[1234], 'FFT 역변환', 1e-9);
+
+  const segs = C.hexLayout(4, 1.0, 0.02, false), Deff = C.apertureOf(segs, 1.0);
+  const base = { N: 512, Dpx: 160, lambdaNm: 500 };
+  const p0 = C.makePupil(segs, 1.0, Deff, base);
+  const f0 = C.psfFromPupil(p0, true);
+  eq(f0.strehl, 1, '무수차 Strehl', 1e-9);
+  const sig = 500 / 20;   // λ/20 rms piston
+  const p1 = C.makePupil(segs, 1.0, Deff, { ...base, pistonNm: sig });
+  const f1 = C.psfFromPupil(p1, true);
+  const mar = Math.exp(-((2 * Math.PI * sig / 500) ** 2));
+  eq(f1.strehl, mar, `Maréchal exp(-σ²) 근사 (실측 ${f1.strehl.toFixed(3)})`, 0.08);
+  // 무수차 PSF 에너지 대비 피크가 1로 정규화됐는지, 6방향 스파이크가 대각보다 밝은지
+  const img = C.psfFromPupil(p0, false).img;
+  eq(img[256 * 512 + 256], 1, '무수차 PSF 중심 = 1', 1e-6);
+  const rr = 8 / (160 / 512), at = (th) => img[Math.round(256 + rr * Math.sin(th)) * 512 + Math.round(256 + rr * Math.cos(th))];
+  let mx = 0, mn = Infinity, asym = 0;
+  for (let d = 0; d < 180; d += 2) { const th = d * Math.PI / 180, v = at(th); mx = Math.max(mx, v); mn = Math.min(mn, v); asym = Math.max(asym, Math.abs(v - at(th + Math.PI)) / (v + 1e-12)); }
+  console.log('   r=8λ/D 방위각 최대/최소 세기비', (mx / mn).toFixed(0), ' 점대칭 오차', asym.toExponential(1));
+  if (!(mx > 10 * mn)) { console.log('FAIL 회절 스파이크 이방성'); process.exitCode = 1; }
+  if (asym > 1e-3) { console.log('FAIL 점대칭'); process.exitCode = 1; }
+}

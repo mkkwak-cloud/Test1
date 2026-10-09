@@ -200,6 +200,125 @@ function fitCheck(mode, P, Deff, xh, N) {
   return { kind: 'asm', usable, ok: !tooBig, nPer, launches: tooBig ? Infinity : Math.ceil(N / nPer) + 1 };
 }
 
+// ===== 별 회절상(PSF) · 분할경 위상 오차 (Fraunhofer 근사: 동공 → FFT) =====
+// 근거: Leboulleux 외(arXiv:2608.16479) — 분할거울 piston/tip/tilt 오차는 분할 1장의 PSF가 만드는 "저차 포락선"
+//   (첫 영점 1.22·N·λ/D, N = 동공 지름 방향 분할 수)에 곱해져 나타남. Sahoo 외(arXiv:2607.28393) — 분할경 허용 오차는 pm 단위.
+function fft1(re, im, inv) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = 2 * Math.PI / len * (inv ? 1 : -1), wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < h; k++) {
+        const a = i + k, b = a + h;
+        const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+function fft2(re, im, N, inv) {
+  const rr = new Float64Array(N), ri = new Float64Array(N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) { rr[x] = re[y * N + x]; ri[x] = im[y * N + x]; }
+    fft1(rr, ri, inv);
+    for (let x = 0; x < N; x++) { re[y * N + x] = rr[x]; im[y * N + x] = ri[x]; }
+  }
+  for (let x = 0; x < N; x++) {
+    for (let y = 0; y < N; y++) { rr[y] = re[y * N + x]; ri[y] = im[y * N + x]; }
+    fft1(rr, ri, inv);
+    for (let y = 0; y < N; y++) { re[y * N + x] = rr[y]; im[y * N + x] = ri[y]; }
+  }
+}
+
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// 동공 진폭(A)과 위상(φ, rad) 격자. segs 좌표는 동공 중심 기준(오프액시스는 호출 전에 x0를 빼 둘 것).
+// o: { N, Dpx, lambdaNm, pistonNm, tiptiltNm, seed, struts, strutW }  — 오차는 모두 "파면(OPD) rms", nm
+function makePupil(segs, s, Deff, o) {
+  const N = o.N || 512, dx = Deff / (o.Dpx || 160), half = s / 2, R = s / SQ3;
+  const A = new Float64Array(N * N), W = new Float64Array(N * N);
+  const rnd = mulberry32(o.seed == null ? 7 : o.seed);
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+  const k = 2 * Math.PI / o.lambdaNm;
+  const nx = [Math.cos(Math.PI / 6), 0, -Math.cos(Math.PI / 6)], nz = [Math.sin(Math.PI / 6), 1, Math.sin(Math.PI / 6)];
+  for (const g of segs) {
+    const pis = (o.pistonNm || 0) * gauss();
+    const tx = (o.tiptiltNm || 0) * gauss() / R, tz = (o.tiptiltNm || 0) * gauss() / R;  // 분할거울 모서리(외접 반경)에서의 OPD 편차 = tiptiltNm rms
+    const i0 = Math.floor((g.x - R) / dx + N / 2), i1 = Math.ceil((g.x + R) / dx + N / 2);
+    const j0 = Math.floor((g.z - R) / dx + N / 2), j1 = Math.ceil((g.z + R) / dx + N / 2);
+    for (let j = Math.max(0, j0); j <= Math.min(N - 1, j1); j++) {
+      for (let i = Math.max(0, i0); i <= Math.min(N - 1, i1); i++) {
+        const px = (i - N / 2) * dx - g.x, pz = (j - N / 2) * dx - g.z;
+        if (Math.abs(px * nx[0] + pz * nz[0]) > half || Math.abs(pz) > half || Math.abs(px * nx[2] + pz * nz[2]) > half) continue;
+        A[j * N + i] = 1; W[j * N + i] = k * (pis + tx * px + tz * pz);
+      }
+    }
+  }
+  if (o.struts) {   // 부경 지지대 3개(120° 간격) — 그림자로 빼냄
+    const w = Math.max(o.strutW || 0.1, dx) / 2;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (!A[j * N + i]) continue;
+      const px = (i - N / 2) * dx, pz = (j - N / 2) * dx;
+      for (let a = 0; a < 3; a++) {
+        const th = Math.PI / 2 + a * 2 * Math.PI / 3, ux = Math.cos(th), uz = Math.sin(th);
+        if (px * ux + pz * uz > 0 && Math.abs(-px * uz + pz * ux) < w) { A[j * N + i] = 0; break; }
+      }
+    }
+  }
+  return { N, A, W, dx };
+}
+
+// 동공 → 초점면 세기(무수차 최대값 = 1로 정규화). 반환 img 는 FFT 중심(0,0)을 N/2로 옮긴 배열
+function psfFromPupil(pup, aberrated) {
+  const { N, A, W } = pup, re = new Float64Array(N * N), im = new Float64Array(N * N);
+  let sumA = 0, cr = 0, ci = 0;
+  for (let q = 0; q < N * N; q++) {
+    if (!A[q]) continue;
+    const ph = aberrated ? W[q] : 0;
+    re[q] = Math.cos(ph); im[q] = Math.sin(ph); sumA++; cr += re[q]; ci += im[q];
+  }
+  fft2(re, im, N, false);
+  const img = new Float32Array(N * N), norm = 1 / (sumA * sumA);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const sx = (x + N / 2) % N, sy = (y + N / 2) % N, q = sy * N + sx;
+    img[y * N + x] = (re[q] * re[q] + im[q] * im[q]) * norm;
+  }
+  return { img, strehl: (cr * cr + ci * ci) * norm, area: sumA };
+}
+
+// 중심 기준 반경 r(λ/D 단위, 폭 ±hw)의 방위각 평균 세기. 격자 간격 = Dpx/N (λ/D / 픽셀)
+function radialMean(img, N, Dpx, r, hw = 0.5) {
+  const sc = Dpx / N, c = N / 2; let s = 0, n = 0;
+  const m = Math.ceil((r + hw) / sc) + 1;
+  for (let y = -m; y <= m; y++) for (let x = -m; x <= m; x++) {
+    const rr = Math.hypot(x, y) * sc;
+    if (rr >= r - hw && rr <= r + hw) { s += img[(c + y) * N + c + x]; n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// 지름 방향 분할 수(링 n, 중앙 포함): 2n+1. 수동 강건 조건: N ≤ IWA(λ/D) — Leboulleux 외(2026)
+const segsAcross = n => 2 * n + 1;
+// 분할 오차 포락선의 첫 영점 반경(λ/D): 1.22·N
+const envelopeRadius = n => 1.22 * segsAcross(n);
+
+// 문헌 기준값(비교용)
+const PHASING_REF = [
+  { name: 'JWST 분할 정렬 달성(≈50 nm rms)', nm: 50 },
+  { name: 'HWO 코로나그래프 목표(≈10 pm rms)', nm: 0.01 },
+];
+
 // ===== 심우주 망원경 3D 시뮬레이터 본체 =====
 const $ = id => document.getElementById(id);
 let THREE;
@@ -272,7 +391,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -892,6 +1011,60 @@ function updateStats() {
   else fitTxt = ok ? `모듈 ${fit.nPer}장/회 → 약 ${fit.launches}회 발사` : '분할거울이 적재함보다 큼';
   $('stats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td>${r[1]}</td></tr>`).join('') +
     `<tr><td class="mu">발사체 적합</td><td class="${ok ? 'ok' : 'bad'}">${fitTxt}</td></tr></table>`;
+  schedulePSF();
+}
+
+
+// ---------- 별 회절상(PSF) ----------
+// 근거: Leboulleux 외 arXiv:2608.16479 (분할 오차 포락선 1.22·N·λ/D, N ≤ IWA 이면 수동 강건) ·
+//       Sahoo 외 arXiv:2607.28393 (분할경 허용 오차 pm 수준). Fraunhofer 근사(동공 FFT)이며 코로나그래프는 포함하지 않음.
+const PSF_N = 512, PSF_DPX = 160, PSF_HALF = 16;   // 격자, 동공 지름 픽셀, 표시 반경(λ/D)
+let psfT = null, psfPerfect = { key: '', f: null };
+function schedulePSF() { clearTimeout(psfT); psfT = setTimeout(updatePSF, 140); }
+const fmtOpd = nm => nm >= 1000 ? (nm / 1000).toFixed(1) + ' µm' : nm >= 1 ? nm.toFixed(nm < 10 ? 1 : 0) + ' nm' : (nm * 1000).toFixed(nm < 0.01 ? 1 : 0) + ' pm';
+function updatePSF() {
+  if (!ctx.segs) return;
+  const cv = $('psf'); if (!cv) return;
+  const pisNm = Math.pow(10, S.pisLog) / 1000, ttNm = Math.pow(10, S.ttLog) / 1000;   // 슬라이더: 로그(pm)
+  $('pisV').textContent = fmtOpd(pisNm); $('ttV').textContent = fmtOpd(ttNm);
+  const segs = ctx.segs.map(g => ({ ...g, x: g.x - (ctx.opt.x0 || 0) }));   // 오프액시스는 동공 중심으로 되돌림
+  const lamNm = S.lambda * 1000, hasStruts = !!ctx.opt.cass && S.struts;
+  $('strutRow').style.display = ctx.opt.cass ? '' : 'none';
+  const base = { N: PSF_N, Dpx: PSF_DPX, lambdaNm: lamNm, struts: hasStruts, strutW: Math.max(0.05, 0.015 * ctx.Deff) };
+  const pup = makePupil(segs, S.seg, ctx.Deff, { ...base, pistonNm: pisNm, tiptiltNm: ttNm });
+  const ab = psfFromPupil(pup, true);
+  const key = [ctx.n, S.seg, S.hole, S.mode, hasStruts, ctx.Deff.toFixed(3)].join('|');
+  if (psfPerfect.key !== key) psfPerfect = { key, f: psfFromPupil(pup, false) };
+  const pf = psfPerfect.f;
+  // 그리기: 로그 스케일 10⁻⁵~1
+  const W = 2 * Math.round(PSF_HALF * PSF_N / PSF_DPX) + 1, c0 = PSF_N / 2, h = (W - 1) / 2;
+  cv.width = cv.height = W;
+  const g = cv.getContext('2d'), im = g.createImageData(W, W);
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const v = ab.img[(c0 + y - h) * PSF_N + (c0 + x - h)];
+    const t = Math.min(1, Math.max(0, (Math.log10(v + 1e-12) + 5) / 5)), o = 4 * (y * W + x);
+    im.data[o] = 255 * Math.min(1, t * 2.2); im.data[o + 1] = 255 * Math.min(1, Math.max(0, t * 2.2 - 0.7)); im.data[o + 2] = 255 * Math.min(1, 0.25 + t * 1.2 - Math.max(0, t - 0.6) * 1.6); im.data[o + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  // 수치
+  const r3 = radialMean(ab.img, PSF_N, PSF_DPX, 3), r10 = radialMean(ab.img, PSF_N, PSF_DPX, 10);
+  const p3 = radialMean(pf.img, PSF_N, PSF_DPX, 3), p10 = radialMean(pf.img, PSF_N, PSF_DPX, 10);
+  const tot = Math.hypot(pisNm, ttNm), N = segsAcross(ctx.n), env = envelopeRadius(ctx.n);
+  const mar = Math.exp(-Math.pow(2 * Math.PI * tot / lamNm, 2));
+  const lamD = S.lambda * 1e-6 / ctx.Deff * 206264806;   // λ/D (밀리초각)
+  const ex = e => e < 1e-12 ? '< 10⁻¹²' : e.toExponential(1).replace('e-', '×10⁻').replace('e+', '×10');
+  const rows = [
+    ['Strehl 비 (계산)', `${ab.strehl.toFixed(3)}`],
+    ['  Maréchal exp(−σ²) 근사', `${mar.toFixed(3)} (σ=${fmtOpd(tot)})`],
+    ['λ/D (화면 반경 16λ/D)', `${lamD.toFixed(1)} 밀리초각`],
+    ['무수차 PSF 3λ/D · 10λ/D', `${ex(p3)} · ${ex(p10)}`],
+    ['오차 포함 3λ/D · 10λ/D', `${ex(r3)} · ${ex(r10)}`],
+    ['지름 방향 분할 수 N', `${N}장 (링 ${ctx.n})`],
+    ['분할 오차 포락선 첫 영점', `${env.toFixed(1)} λ/D`],
+  ];
+  $('psfStats').innerHTML = '<table>' + rows.map(r => `<tr><td class="mu">${r[0]}</td><td>${r[1]}</td></tr>`).join('') + '</table>' +
+    `<p class="note">오차는 파면(OPD) rms, 분할거울마다 무작위(고정 시드). 비교 기준: JWST 분할 정렬 ≈50 nm rms, HWO 코로나그래프 목표 ≈10 pm rms.
+ 코로나그래프 없는 원시 PSF입니다. 논문 가이드: 목표 IWA(λ/D) ≥ N이면 분할 오차가 암부 대비에 덜 새어 듭니다(IWA 3λ/D → 지름 방향 3장·총 7장 이하가 유리, <a href="https://arxiv.org/abs/2608.16479" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2608.16479</a>). 분할 수가 많을수록 허용 오차가 엄격해지고, 같은 가이드 기준 85장→7장이면 piston 허용치가 최대 약 2배 완화됩니다. 분할경 허용 오차는 pm 수준입니다(<a href="https://arxiv.org/abs/2607.28393" target="_blank" rel="noopener" style="color:var(--ac2)">arXiv 2607.28393</a>).</p>`;
 }
 
 // ---------- UI ----------
@@ -907,7 +1080,13 @@ const CONTROLS = [
 const CE = {};
 (function buildPanel() {
   const pn = $('panel');
-  pn.innerHTML = '<h2>성능 요약</h2><div id="stats"></div><h2>설계 파라미터</h2><div id="sl"></div>' +
+  pn.innerHTML = '<h2>성능 요약</h2><div id="stats"></div>' +
+    '<h2>별 회절상(PSF) · 분할경 위상 오차</h2><canvas id="psf" width="206" height="206" style="width:100%;max-width:260px;aspect-ratio:1;display:block;margin:0 auto;background:#000;border:1px solid var(--bd);border-radius:8px"></canvas>' +
+    '<div class="row"><label><span>분할 거울 piston 오차 (rms)</span><span id="pisV"></span></label><input type="range" id="pis" min="0" max="6" step="0.05"></div>' +
+    '<div class="row"><label><span>분할 거울 tip/tilt 오차 (rms)</span><span id="ttV"></span></label><input type="range" id="tt" min="0" max="6" step="0.05"></div>' +
+    '<div class="chk" id="strutRow"><input type="checkbox" id="strutC" checked><label for="strutC">부경 지지대 3개 그림자 포함</label></div>' +
+    '<div id="psfStats"></div>' +
+    '<h2>설계 파라미터</h2><div id="sl"></div>' +
     '<div class="chk" id="holeRow"><input type="checkbox" id="hole"><label for="hole">중앙 분할거울 제외(부경 광로)</label></div>' +
     '<div class="row" id="eacRow"><label><span>HWO 구성(EAC)</span></label><select id="eac"></select></div>' +
     '<div class="row"><label><span>발사체</span></label><select id="launcher"></select></div>' +
@@ -936,6 +1115,10 @@ const CE = {};
   const es = $('eac');
   for (const k in EACS) { const o = document.createElement('option'); o.value = k; o.textContent = EACS[k].name; es.appendChild(o); }
   es.addEventListener('change', () => { Object.assign(S, EACS[es.value], { eac: es.value }); syncUI(); build(false); });
+  $('pis').value = S.pisLog; $('tt').value = S.ttLog;
+  $('pis').addEventListener('input', e => { S.pisLog = +e.target.value; schedulePSF(); });
+  $('tt').addEventListener('input', e => { S.ttLog = +e.target.value; schedulePSF(); });
+  $('strutC').addEventListener('change', e => { S.struts = e.target.checked; schedulePSF(); });
   $('ssh').addEventListener('change', e => { S.starshade = e.target.checked; });
   $('hole').addEventListener('change', e => { S.hole = e.target.checked; scheduleBuild(); });
   $('rays').addEventListener('change', e => { S.rays = e.target.checked; });

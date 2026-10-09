@@ -49,7 +49,7 @@ python3 -m http.server 8000         # 실행: http://localhost:8000/deep-space-t
 - 사용자 선호: 작업 결과는 Google Drive "0. 작업용 폴더"에 저장(하위 폴더 "심우주 망원경 시뮬레이터").
 
 ## 다음 할 일 후보(사용자에게 제안했던 것)
-1. 별 회절상(PSF) 계산·표시 — 육각 분할거울의 6+2 회절 스파이크, 정렬 오차 슬라이더.
+1. ~~별 회절상(PSF)~~ — 2026-10-09 구현 완료(아래 "PSF" 절). 남은 것: 코로나그래프(APLC/FPM) 적용 암부 대비, 분할경별 허용 오차 맵(PASTIS식 민감도).
 2. 차양막 층별 온도(복사 평형 개략) 색 표시.
 3. 저궤도(LEO) 배치 뷰 — 한국형 모드용(지구 상공 수백 km, 약 90분 주기).
 4. JWST 3반사경(TMA) 광선추적, L2 헤일로 궤도 3체 운동 적분, 실제 전개 순서(약 29일) 재생.
@@ -59,3 +59,9 @@ python3 -m http.server 8000         # 실행: http://localhost:8000/deep-space-t
 - GitHub `nasa/NASA-3D-Resources` → `3D Models/James Webb Space Telescope (B)/James Webb Space Telescope (B).glb` (KHR_draco_mesh_compression).
 - 받기: `git clone --depth 1 --filter=blob:none --no-checkout` 후 sparse-checkout으로 해당 파일만(저장소 전체는 수 GB).
 - 이용 조건은 NASA 3D Resources 안내를 확인할 것.
+
+## PSF · 분할경 위상 오차 (2026-10-09 추가)
+- `calc.js` 하단: `fft2`, `makePupil`(육각 분할 동공 + piston/tip/tilt 무작위 오차 + 부경 지지대 3개), `psfFromPupil`(동공 FFT → 세기, 무수차 최대 = 1), `radialMean`, `segsAcross`, `envelopeRadius`. 격자 512², 동공 지름 160 px(표시 반경 16 λ/D).
+- `main.js`: 성능 요약 아래 PSF 캔버스·piston / tip-tilt 슬라이더(로그, pm~µm)·지지대 토글·수치표. 오프액시스(C)는 `opt.x0`를 빼서 동공 중심으로 되돌림. 오차는 파면(OPD) rms, 시드 고정.
+- 근거 논문: Leboulleux 외 arXiv:2608.16479 (분할 오차 저차 포락선 1.22·N·λ/D, IWA ≥ N이면 수동 강건, 85→7장이면 piston 허용치 최대 ~2배 완화) · Sahoo 외 arXiv:2607.28393 (분할경 허용 오차 pm 수준, 안쪽 분할일수록 엄격).
+- 한계: Fraunhofer 근사, 코로나그래프 미포함, 틈새(2 cm)는 격자(≈4 cm/px)에서 거칠게 표현됨, 동공 격자 때문에 먼 날개(10⁻⁴ 이하)는 픽셀화 잡음 포함. 테스트: `test_calc.mjs`(FFT 파스발·역변환, Strehl=1, Maréchal 근사, 점대칭·이방성).

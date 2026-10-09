@@ -352,3 +352,24 @@ export function limitingDistance(p) {
 // 롤 사이 드리프트의 대비 안정도: 정적 잔여장 E0와 드리프트장 ΔE의 결맞음 혼합(위상 무작위 평균) + 2차 항
 //   ⟨ΔI²⟩ ≈ 2·C_raw·c_d + c_d²  (Turyshev Eq. 62 와 같은 구조), c_d = 드리프트장만의 암부 세기
 export const contrastStability = (cRaw, cDrift) => Math.sqrt(2 * cRaw * cDrift + cDrift * cDrift);
+
+// ===== 차양막 층별 온도 — 1차원 복사 평형(층 간 복사 교환 + 열린 가장자리로 우주 방출) =====
+// u_i = σT_i⁴ 에 대해 삼중대각 선형계. 1층 = 태양 쪽. 태양쪽 면(1층 앞면)은 도핑 실리콘 코팅, 나머지 면은 알루미늄 증착.
+// 층 사이 간격: 복사 교환 (1−f)·E·(u_a − u_b), E = 1/(1/ε_a + 1/ε_b − 1); 각 면은 f·ε·u 만큼 가장자리로 우주에 방출.
+// 기본값 aSi/eSi·fEdge 는 JWST 공개 온도(태양쪽 약 383 K, 망원경쪽 약 36 K)에 맞춘 보정값이며 재료 측정값이 아님.
+export const SIGMA = 5.670374419e-8;
+export const SHIELD_DEF = { S0: 1361 / 1.01 ** 2, cosI: 1, aSi: 0.652, eSi: 0.68, eAl: 0.05, fEdge: 0.68 };
+export function sunshieldTemps(n, o = {}) {
+  const p = { ...SHIELD_DEF, ...o }, E = 1 / (2 / p.eAl - 1), f = p.fEdge, k = (1 - f) * E;
+  const a = new Float64Array(n), b = new Float64Array(n), c = new Float64Array(n), d = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const front = i === 0 ? p.eSi : f * p.eAl + k, back = i === n - 1 ? p.eAl : f * p.eAl + k;
+    b[i] = front + back; a[i] = i > 0 ? -k : 0; c[i] = i < n - 1 ? -k : 0;
+    d[i] = i === 0 ? p.aSi * p.S0 * p.cosI : 0;
+  }
+  for (let i = 1; i < n; i++) { const m = a[i] / b[i - 1]; b[i] -= m * c[i - 1]; d[i] -= m * d[i - 1]; }   // Thomas 알고리즘
+  const u = new Float64Array(n); u[n - 1] = d[n - 1] / b[n - 1];
+  for (let i = n - 2; i >= 0; i--) u[i] = (d[i] - c[i] * u[i + 1]) / b[i];
+  const T = Array.from(u, v => Math.pow(v / SIGMA, 0.25));
+  return { T, qIn: p.aSi * p.S0 * p.cosI, qLeak: p.eAl * u[n - 1] };   // 흡수 태양열, 망원경 쪽으로 나가는 열(W/m²)
+}

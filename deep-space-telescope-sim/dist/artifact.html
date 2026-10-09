@@ -418,6 +418,27 @@ function limitingDistance(p) {
 //   ⟨ΔI²⟩ ≈ 2·C_raw·c_d + c_d²  (Turyshev Eq. 62 와 같은 구조), c_d = 드리프트장만의 암부 세기
 const contrastStability = (cRaw, cDrift) => Math.sqrt(2 * cRaw * cDrift + cDrift * cDrift);
 
+// ===== 차양막 층별 온도 — 1차원 복사 평형(층 간 복사 교환 + 열린 가장자리로 우주 방출) =====
+// u_i = σT_i⁴ 에 대해 삼중대각 선형계. 1층 = 태양 쪽. 태양쪽 면(1층 앞면)은 도핑 실리콘 코팅, 나머지 면은 알루미늄 증착.
+// 층 사이 간격: 복사 교환 (1−f)·E·(u_a − u_b), E = 1/(1/ε_a + 1/ε_b − 1); 각 면은 f·ε·u 만큼 가장자리로 우주에 방출.
+// 기본값 aSi/eSi·fEdge 는 JWST 공개 온도(태양쪽 약 383 K, 망원경쪽 약 36 K)에 맞춘 보정값이며 재료 측정값이 아님.
+const SIGMA = 5.670374419e-8;
+const SHIELD_DEF = { S0: 1361 / 1.01 ** 2, cosI: 1, aSi: 0.652, eSi: 0.68, eAl: 0.05, fEdge: 0.68 };
+function sunshieldTemps(n, o = {}) {
+  const p = { ...SHIELD_DEF, ...o }, E = 1 / (2 / p.eAl - 1), f = p.fEdge, k = (1 - f) * E;
+  const a = new Float64Array(n), b = new Float64Array(n), c = new Float64Array(n), d = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const front = i === 0 ? p.eSi : f * p.eAl + k, back = i === n - 1 ? p.eAl : f * p.eAl + k;
+    b[i] = front + back; a[i] = i > 0 ? -k : 0; c[i] = i < n - 1 ? -k : 0;
+    d[i] = i === 0 ? p.aSi * p.S0 * p.cosI : 0;
+  }
+  for (let i = 1; i < n; i++) { const m = a[i] / b[i - 1]; b[i] -= m * c[i - 1]; d[i] -= m * d[i - 1]; }   // Thomas 알고리즘
+  const u = new Float64Array(n); u[n - 1] = d[n - 1] / b[n - 1];
+  for (let i = n - 2; i >= 0; i--) u[i] = (d[i] - c[i] * u[i + 1]) / b[i];
+  const T = Array.from(u, v => Math.pow(v / SIGMA, 0.25));
+  return { T, qIn: p.aSi * p.S0 * p.cosI, qLeak: p.eAl * u[n - 1] };   // 흡수 태양열, 망원경 쪽으로 나가는 열(W/m²)
+}
+
 // ===== 심우주 망원경 3D 시뮬레이터 본체 =====
 const $ = id => document.getElementById(id);
 let THREE;
@@ -490,7 +511,7 @@ function makeEnv(pm) {
   return pm.fromScene(room, 0.04).texture;
 }
 
-const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12 };
+const S = { mode: 'A', ...PRESETS.A, gap: GAP, t: 0, playing: true, rays: true, photons: true, view: 'tel', auto: false, names: true, starshade: false, jwst: false, korea: false, nasa: true, pisLog: 4.3, ttLog: 4.3, struts: true, psfMode: 'raw', iwa: 3.5, dPc: 5, tLog: 2, drLog: 1.7, tau: 0.12, shieldTemp: false };
 const DUR = { A: 16, B: 24, C: 14 };
 const MODE_NAME = { A: '접이식 전개형', B: '우주 조립형', C: 'HWO형', J: '제임스웹 실사', K: '한국형 우주망원경' };
 const MODE_SUB = { A: 'JWST·Roman', B: 'iSAT류', C: '오프액시스', J: 'JWST 재현', K: '3.5m·저궤도' };
@@ -844,6 +865,8 @@ function build(fit = true) {
     }
     m.position.set(sx0, ySS0 - i * spc, 0); tel.add(m); ctx.layers.push(m);
   }
+  ctx.shield = { nL, meshes: ctx.layers.slice(0, nL), lbl: new THREE.Group(), side: mode === 'C' ? [Deff * 1.08, 0] : [0.5 * Ws + 0.05 * Deff, 0.06 * Ls] };
+  ctx.shield.lbl.position.set(sx0, 0, 0); tel.add(ctx.shield.lbl);
   if (S.jwst && mode === 'A') {                                   // 차양막 중간 지지 붐(좌우 가로대)
     const Ws2 = Ws, Ls2 = Ls;
     for (const zi of [0.06, -0.2]) {
@@ -957,6 +980,7 @@ function build(fit = true) {
   if (S.view === 'tel') { if (fit) fitCamera(); else { holder.position.set(0, 0, 0); holder.rotation.set(0, 0, 0); holder.scale.setScalar(1); } }
   else applyHolderL2();
   applyT(S.t);
+  applyShieldTemp();
   updateStats();
 }
 
@@ -1103,6 +1127,12 @@ function updateStats() {
   if (S.mode === 'C') rows.push(['코로나그래프 대비', '≤10⁻¹⁰ (96×96 변형거울)'], ['파면 안정성 목표', '피코미터(pm)급'], ['열 안정성 목표', '~mK급 (ULE 유리, 약 20°C)'], ['질량 한도(공개 자료)', `≤${S.massCap || 25} t`]);
   if (S.korea) rows.push(['제안 제원(초안)', '3.5 m · 700mm×18장 · 0.3~1.0 µm · 3~4 t · 1~2 kW · LEO']);
   if (S.jwst) rows.push(['실제 JWST 제원', '구경 6.5 m · 거울 18장 · 집광 25.4 m² · 차양막 21.2×14.2 m · 약 6.2 t']);
+  if (ctx.shield) {
+    const sh = sunshieldTemps(ctx.shield.nL);
+    rows.push([`차양막 ${ctx.shield.nL}겹 온도(개략)`, sh.T.map(t => t.toFixed(0)).join(' → ') + ' K'],
+      ['  태양 흡수 → 망원경 쪽 방출', `${sh.qIn.toFixed(0)} → ${sh.qLeak < 0.1 ? (sh.qLeak * 1000).toFixed(1) + ' m' : sh.qLeak.toFixed(2) + ' '}W/m² (${(sh.qIn / sh.qLeak).toExponential(0)}배 감쇠)`]);
+    if (S.korea) rows.push(['  (저궤도 참고)', '지구 적외선·알베도 미포함 — L2 기준 값']);
+  }
   rows.push(['전지판 면적 / 발전(개략)', `${ctx.solarArea.toFixed(1)} m² / ${(ctx.solarArea * 0.25).toFixed(1)} kW`]);
   rows.push(['거울 질량(개략)', fmtM(st.mMirror)], ['총 질량(개략)', fmtM(st.mTotal)]);
   let fitTxt, ok = fit.ok;
@@ -1184,6 +1214,28 @@ function updatePSF() {
 }
 
 
+
+// ---------- 차양막 층별 온도 색 ----------
+// sunshieldTemps(): 1차원 복사 평형, JWST 공개 온도(태양쪽 ~383 K, 망원경쪽 ~36 K)에 맞춘 보정 모델
+const tempColor = T => { const t = Math.min(1, Math.max(0, Math.log(T / 30) / Math.log(400 / 30))); return new THREE.Color().setHSL(0.66 * (1 - t), 0.9, 0.34 + 0.14 * t); };
+function applyShieldTemp() {
+  const sh = ctx.shield; if (!sh) return;
+  const { T } = sunshieldTemps(sh.nL), on = !!S.shieldTemp;
+  while (sh.lbl.children.length) sh.lbl.remove(sh.lbl.children[0]);
+  sh.lbl.visible = on;
+  sh.meshes.forEach((m, i) => {
+    if (!m.isMesh) return;
+    const Ti = T[sh.nL - 1 - i];   // ctx.layers[0] = 망원경 쪽, T[0] = 태양 쪽
+    if (!m.userData.mat0) m.userData.mat0 = m.material;
+    if (on) {
+      const c = tempColor(Ti);
+      m.material = new THREE.MeshStandardMaterial({ color: c, emissive: c.clone().multiplyScalar(0.22), metalness: 0.2, roughness: 0.6, side: THREE.DoubleSide });
+      const lb = label(`${sh.nL - i}층 ${Ti.toFixed(0)} K (${(Ti - 273.15).toFixed(0)}°C)`, 0.06 * ctx.Deff);
+      lb.position.set(sh.side[0] + 0.3 * ctx.Deff, sh.meshes[0].position.y - i * 0.22 * ctx.Deff, sh.side[1]); sh.lbl.add(lb);   // 층 간격이 좁아 라벨은 벌려 놓음
+    } else m.material = m.userData.mat0;
+  });
+}
+
 // ---------- 지구형 행성 검출 예산 ----------
 // Turyshev(arXiv:2609.32023) 단순화: 두 롤 ADI, 지구형 행성(Ag 0.2, 1 au, 위상각 90°), 탐색 30,000곳·오경보 10⁻³·검출 99%.
 // 원시 대비 = 설계 바닥 3×10⁻¹⁰(논문 Table VI 가시광) + 정적 분할 오차(위 PSF). 롤 간 안정도 = 결맞음 혼합 + 2차 항.
@@ -1250,6 +1302,7 @@ const CE = {};
     '<div class="chk" id="ssRow"><input type="checkbox" id="ssh"><label for="ssh">스타셰이드(별도 우주선) 표시</label></div>' +
     '<h2>표시</h2><div class="chk"><input type="checkbox" id="rays" checked><label for="rays">광선 경로</label></div>' +
     '<div class="chk" id="nasaRow"><input type="checkbox" id="nasa" checked><label for="nasa">NASA 실제 3D 모델 사용 <span id="nasaSt" style="color:var(--mu)"></span></label></div>' +
+    '<div class="chk"><input type="checkbox" id="shT"><label for="shT">차양막 층별 온도 색 표시</label></div>' +
     '<div class="chk"><input type="checkbox" id="names" checked><label for="names">부품 이름</label></div>' +
     '<div class="chk"><input type="checkbox" id="phot" checked><label for="phot">광자 애니메이션</label></div>' +
     '<div class="chk"><input type="checkbox" id="auto"><label for="auto">자동 회전</label></div>' +
@@ -1286,6 +1339,7 @@ const CE = {};
   $('rays').addEventListener('change', e => { S.rays = e.target.checked; });
   $('phot').addEventListener('change', e => { S.photons = e.target.checked; });
   $('names').addEventListener('change', e => { S.names = e.target.checked; });
+  $('shT').addEventListener('change', e => { S.shieldTemp = e.target.checked; applyShieldTemp(); });
   $('nasa').addEventListener('change', e => { S.nasa = e.target.checked; build(false); });
   $('auto').addEventListener('change', e => { S.auto = e.target.checked; });
 })();

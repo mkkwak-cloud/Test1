@@ -118,3 +118,15 @@ for (const m of ['A', 'B', 'C']) {
   eq(b10.frnPh * 1e12, 18.197, '10 pc 광자 FRN (ppt)', 2e-2);
   eq(C.detectionBudget({ ...P0, cStab: 10e-12 / (b.g / 0.12) }).tReqH, 69.64, '광학 잔여 10 ppt 필요 시간 (h)', 0.05);
 }
+
+// 7) 차양막 층별 온도: JWST 공개 온도 근사, 단조 감소, 에너지 보존
+{
+  const r = C.sunshieldTemps(5), p = C.SHIELD_DEF, T = r.T;
+  eq(T[0], 383, `JWST 태양쪽 층 온도 ≈ 383 K (${T.map(t => t.toFixed(0)).join('→')})`, 3);
+  eq(T[4], 36, 'JWST 망원경쪽 층 온도 ≈ 36 K', 3);
+  if (!T.every((t, i) => i === 0 || t < T[i - 1])) { console.log('FAIL 온도 단조 감소'); process.exitCode = 1; }
+  const u = T.map(t => C.SIGMA * t ** 4);
+  let out = p.eSi * u[0] + p.eAl * u[4];
+  for (let i = 0; i < 5; i++) out += p.fEdge * p.eAl * ((i > 0) + (i < 4)) * u[i];   // 가장자리 방출
+  eq(out / r.qIn, 1, '차양막 에너지 보존(흡수 = 방출)', 1e-9);
+}

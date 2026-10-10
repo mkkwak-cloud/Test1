@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ALKS Scenario Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: parameter grid (left) drives a 3D replay of the selected cell (right). Instrument-panel look shared with Drive Sim Lite. */
+:root {
+  --bg: #e6e9ee; --card: #f7f8fa; --line: rgba(20,24,29,0.15); --fg: #14181d; --muted: #55606b;
+  --accent: #b85f00; --accent-fg: #ffffff; --good: #1b7f4b; --bad: #c0262d; --ref: #2f5fd0; --ua: #7d8794;
+  --font-ui: 'Barlow Semi Condensed', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1014; --card: #151a20; --line: rgba(255,255,255,0.15); --fg: #e8ebee; --muted: #98a3ae;
+    --accent: #ffb02e; --accent-fg: #1a1200; --good: #4cc38a; --bad: #ff6b6b; --ref: #7aa2ff; --ua: #8b95a1;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1014; --card: #151a20; --line: rgba(255,255,255,0.15); --fg: #e8ebee; --muted: #98a3ae;
+  --accent: #ffb02e; --accent-fg: #1a1200; --good: #4cc38a; --bad: #ff6b6b; --ref: #7aa2ff; --ua: #8b95a1;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); padding-inline: 16px; padding-block: 16px 28px; }
+.page { max-width: 1280px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+h1 { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.01em; }
+.sub { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; max-width: 70ch; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid currentColor; white-space: nowrap; }
+.st-pass { color: var(--good); } .st-fail { color: var(--bad); } .st-run { color: var(--muted); }
+.cols { display: grid; grid-template-columns: minmax(0, 470px) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 960px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 14px; min-width: 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 0.95rem; font-weight: 600; letter-spacing: 0.02em; }
+.hint { color: var(--muted); font-size: 0.78rem; line-height: 1.4; margin: 6px 0 0; }
+.ctl { display: grid; gap: 8px; }
+.row { display: grid; gap: 2px; }
+.row .top { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.84rem; }
+.row .top output { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--accent); }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.grp-title { margin: 10px 0 2px; font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+button { font: 500 0.84rem/1 var(--font-ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select { font: inherit; font-size: 0.84rem; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; }
+.mapwrap { position: relative; }
+#heat { width: 100%; height: auto; display: block; touch-action: manipulation; cursor: crosshair; }
+#tip { position: absolute; z-index: 5; pointer-events: none; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font-size: 0.78rem; line-height: 1.45; box-shadow: 0 4px 14px rgba(0,0,0,0.25); max-width: 230px; }
+.legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; margin-top: 8px; font-size: 0.76rem; color: var(--muted); }
+.legend span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sw { flex: none; width: 14px; height: 14px; border-radius: 3px; display: inline-grid; place-items: center; font-size: 11px; line-height: 1; color: #fff; }
+.sw.pass { background: var(--good); } .sw.fail { background: var(--bad); }
+.sw.uaok { background: var(--ua); opacity: 0.35; }
+.sw.uacol { background: repeating-linear-gradient(45deg, var(--ua) 0 3px, transparent 3px 6px); border: 1px solid var(--ua); }
+.sum { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 0.84rem; margin-top: 10px; }
+.sum dt { color: var(--muted); } .sum dd { margin: 0; font-family: var(--font-num); font-variant-numeric: tabular-nums; text-align: right; }
+.vwrap { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #8aa4c4; height: clamp(300px, 52vh, 480px); }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: absolute; left: 10px; top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 0.8rem; display: grid; grid-template-columns: auto auto; gap: 2px 12px; opacity: 0.94; }
+.hud dt { color: var(--muted); } .hud dd { margin: 0; font-family: var(--font-num); font-variant-numeric: tabular-nums; text-align: right; }
+.badges { position: absolute; right: 10px; top: 10px; display: grid; gap: 6px; justify-items: end; }
+.badge { background: var(--card); border: 1px solid currentColor; border-radius: 8px; padding: 4px 9px; font-size: 0.78rem; font-weight: 600; }
+.ctrls { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; opacity: 0.96; }
+.ctrls input[type=range] { flex: 1 1 140px; min-width: 100px; }
+.ctrls .t { font-family: var(--font-num); font-size: 0.78rem; color: var(--muted); min-width: 4.6em; text-align: right; font-variant-numeric: tabular-nums; }
+.charts { display: grid; gap: 4px; }
+.charts canvas { width: 100%; height: 150px; display: block; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 8px; }
+.cmp th, .cmp td { padding: 4px 6px; border-top: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+.cmp th:first-child, .cmp td:first-child { text-align: left; color: var(--muted); font-weight: 500; }
+.cmp td { font-family: var(--font-num); }
+.cmp thead th { border-top: none; font-weight: 600; font-size: 0.78rem; }
+.cmp .bad { color: var(--bad); } .cmp .ok { color: var(--good); }
+footer { color: var(--muted); font-size: 0.78rem; line-height: 1.5; max-width: 90ch; }
+</style>
+
+<div class="page">
+  <header>
+    <div>
+      <h1>ALKS Scenario Lab</h1>
+      <p class="sub">고속도로 끼어들기 시나리오를 파라미터 격자로 실행하고, 참조 운전자 모델이 피할 수 있는 상황에서 시험 대상 스택이 충돌하는지 판정합니다.</p>
+    </div>
+    <span class="pill st-run" id="verdict">계산 중</span>
+  </header>
+
+  <div class="cols">
+    <div class="col">
+      <section class="card">
+        <h2>시나리오</h2>
+        <div class="ctl">
+          <div class="row"><div class="top"><label for="sVe">자차 속도</label><output id="oVe"></output></div><input type="range" id="sVe" min="60" max="130" step="5" value="100"></div>
+          <div class="row"><div class="top"><label for="sVo">끼어드는 차 속도</label><output id="oVo"></output></div><input type="range" id="sVo" min="20" max="120" step="5" value="60"></div>
+          <div class="row"><div class="top"><span id="lBf">끼어든 뒤 감속</span></div>
+            <div class="seg" id="segBf" role="group" aria-labelledby="lBf">
+              <button data-v="0" aria-pressed="true">등속</button><button data-v="3" aria-pressed="false">3 m/s²</button><button data-v="6" aria-pressed="false">6 m/s²</button>
+            </div></div>
+        </div>
+        <div class="grp-title">시험 대상 스택 (스탠드인)</div>
+        <div class="ctl">
+          <div class="row"><div class="top"><label for="sDelay">반응 지연</label><output id="oDelay"></output></div><input type="range" id="sDelay" min="0" max="1.5" step="0.05" value="0.3"></div>
+          <div class="row"><div class="top"><label for="sBrake">최대 제동</label><output id="oBrake"></output></div><input type="range" id="sBrake" min="4" max="10" step="0.5" value="8"></div>
+          <div class="row"><div class="top"><label for="sPred">의도 예측 여유 (0 = 끔)</label><output id="oPred"></output></div><input type="range" id="sPred" min="0" max="2" step="0.1" value="0.3"></div>
+          <div class="row"><div class="top"><label for="sThr">횡방향 인지 임계</label><output id="oThr"></output></div><input type="range" id="sThr" min="1.8" max="3" step="0.1" value="2.4"></div>
+          <div class="row"><div class="top"><label for="sJerk">저크 한계</label><output id="oJerk"></output></div><input type="range" id="sJerk" min="5" max="40" step="1" value="25"></div>
+          <div class="seg" id="presets"><button data-p="good">양호</button><button data-p="slow">반응 느림</button><button data-p="nopred">예측 없음</button></div>
+        </div>
+        <p class="hint">스택 입력은 지연된 정답 객체, 출력은 가감속 명령입니다. 이 자리에 Autoware나 자체 스택의 어댑터가 들어갑니다.</p>
+      </section>
+
+      <section class="card">
+        <h2>결과 지도 <span style="font-weight:400;color:var(--muted);font-size:0.8rem">· 칸을 눌러 재생</span></h2>
+        <div class="mapwrap" id="mapwrap"><canvas id="heat" aria-label="시나리오 파라미터 격자 결과"></canvas><div id="tip" hidden></div></div>
+        <div class="legend">
+          <span><i class="sw pass"></i>통과: 회피 가능 · 무충돌</span>
+          <span><i class="sw fail">×</i>실패: 회피 가능 · 충돌</span>
+          <span><i class="sw uaok"></i>회피 불가 · 무충돌</span>
+          <span><i class="sw uacol"></i>회피 불가 · 충돌</span>
+        </div>
+        <dl class="sum">
+          <dt>회피 가능 칸</dt><dd id="sAv">–</dd>
+          <dt>그중 스택 충돌 (실패)</dt><dd id="sFail">–</dd>
+          <dt>회피 불가 칸 (충돌 / 무충돌)</dt><dd id="sUa">–</dd>
+        </dl>
+        <p class="hint">회피 가능은 참조 운전자 모델이 충돌 없이 피하는 경우입니다.</p>
+      </section>
+    </div>
+
+    <div class="col">
+      <div class="vwrap" id="vwrap">
+        <canvas id="view" aria-label="선택한 시나리오의 3D 재생"></canvas>
+        <dl class="hud">
+          <dt>시간</dt><dd id="hT">0.00 s</dd>
+          <dt>자차 속도</dt><dd id="hV">0 km/h</dd>
+          <dt>감속도</dt><dd id="hA">0.0 m/s²</dd>
+          <dt>차간거리</dt><dd id="hG">–</dd>
+        </dl>
+        <div class="badges" id="badges"></div>
+        <div class="ctrls">
+          <button id="bPlay" aria-label="재생 또는 일시정지">일시정지</button>
+          <button id="bRestart">처음으로</button>
+          <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="재생 위치">
+          <span class="t" id="tLab">0.0 s</span>
+          <select id="sSpeed" aria-label="재생 속도"><option value="1">1×</option><option value="0.5">0.5×</option><option value="0.25">0.25×</option></select>
+          <select id="sView" aria-label="시점"><option value="chase">추적</option><option value="top">탑뷰</option><option value="side">측면</option></select>
+        </div>
+      </div>
+      <section class="card">
+        <h2 id="selTitle">선택한 시나리오</h2>
+        <div class="charts"><canvas id="ch1" aria-label="속도 그래프"></canvas><canvas id="ch2" aria-label="감속도 그래프"></canvas></div>
+        <table class="cmp">
+          <thead><tr><th></th><th>시험 스택</th><th>참조 모델</th></tr></thead>
+          <tbody id="cmpBody"></tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+  <footer>참조 운전자 모델은 UN R157 원문 발췌(반응시간 0.75 s, 저크 12.65 m/s³, 편안한 감속 4 m/s², 최대 감속 6 m/s² 등)를 바탕으로 근사 구현한 것이라 일부 식은 원문과 다를 수 있습니다. 개발 방식 설명용 데모이며 인증이나 안전 판단에 쓰면 안 됩니다. 시험 대상 스택은 단순한 스탠드인입니다.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ==== CORE START ==== */
+var Sim = (function () {
+  var L = 4.5, W = 1.8, DT = 0.01, LANE = 3.5;
+  // Reference ("attentive human driver") performance model parameters, from UN R157 excerpts (Model B).
+  var R = { tau: 0.75, jerk: 12.65, d1: 2, bComf: 4, bMax: 6, bCut: 7, wander: 0.375 };
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+
+  // Reference model: deceleration demand from the PFS / CFS fuzzy indicators (CFS/PFS formulas approximated from excerpts).
+  function refCmd(ue, uf, dist, aEgo) {
+    var dUnsP = Math.max(0, ue * R.tau + ue * ue / (2 * R.bMax) - uf * uf / (2 * R.bCut));
+    var dSafeP = Math.max(dUnsP, ue * R.tau + ue * ue / (2 * R.bComf) - uf * uf / (2 * R.bCut));
+    var x = dist - R.d1, pfs;
+    if (x <= dUnsP) pfs = 1; else if (x >= dSafeP) pfs = 0; else pfs = (x - dSafeP) / (dUnsP - dSafeP);
+    var aP = Math.max(aEgo, -R.bComf), uNext = ue + aP * R.tau, dNew = ((ue + uNext) / 2 - uf) * R.tau, dSafeC, dUnsC;
+    if (uNext <= uf) { dSafeC = dUnsC = Math.max(0, dNew); }
+    else { var q = (uNext - uf) * (uNext - uf); dSafeC = dNew + q / (2 * R.bComf); dUnsC = dNew + q / (2 * R.bMax); }
+    var cfs;
+    if (dist <= dUnsC) cfs = 1; else if (dist >= dSafeC) cfs = 0; else cfs = (dist - dSafeC) / (dUnsC - dSafeC);
+    return cfs > 0 ? cfs * (R.bMax - R.bComf) + R.bComf : pfs * R.bComf;
+  }
+
+  // Stack under test (stand-in). This function is the adapter point: observation in, acceleration command out.
+  function stackCmd(ego, obs, p, vSet) {
+    var aSet = clamp(1.0 * (vSet - ego.v), -2, 1.5);
+    if (!obs) return aSet;
+    if (obs.x - ego.x < L) return aSet;   // alongside or behind: nothing to brake for
+    var gap = obs.x - L - ego.x, vrel = ego.v - obs.v;
+    var inCorr = Math.abs(obs.y) < p.thr, threat = inCorr;
+    if (!threat && p.predict > 0 && vrel > 0 && gap > 0 && obs.vy < -0.01) {
+      // intent prediction: will it enter our lane before we pass it?
+      var tLat = Math.max(0, Math.abs(obs.y) - W) / Math.abs(obs.vy), tWin = (gap + 2 * L) / vrel;
+      threat = tLat < tWin + p.predict;
+    }
+    if (!threat) return aSet;
+    var aReq = vrel > 0 ? vrel * vrel / (2 * Math.max(gap - R.d1, 0.1)) : 0;
+    var dDes = 6 + 1.4 * ego.v;
+    var aAcc = Math.max(0.25 * (gap - dDes) + 0.9 * (obs.v - ego.v), -3);
+    var cmd = Math.min(aSet, Math.max(aAcc, -p.maxBrake));
+    if (aReq > 1.0) cmd = Math.min(cmd, -Math.min(p.maxBrake, 1.4 * aReq + 1.0));
+    return cmd;
+  }
+
+  // par: { ve, vo (m/s), dx0 (m), vy (m/s), bf (m/s2 decel of cut-in car after it is in lane), stack:{delay,maxBrake,predict,thr,jerk} }
+  function run(par, kind, rec) {
+    var tCut = LANE / par.vy, tEnd = Math.min(40, tCut + 10), nMax = Math.round(tEnd / DT);
+    var xe = 0, ve = par.ve, ae = 0, xf = par.dx0 + L, yf = LANE, vf = par.vo, vyf = -par.vy;
+    var dSteps = kind === 'stack' ? Math.round(par.stack.delay / DT) : 0, tauSteps = Math.round(R.tau / DT);
+    var hx = [], hy = [], hv = [], hvy = [], cmdH = [], percStep = -1;
+    var out = { collided: false, tCol: 0, dv: 0, minTtc: Infinity, minGap: Infinity, maxDec: 0, tEnd: 0 };
+    var tr = rec ? { t: [], xe: [], ve: [], ae: [], xf: [], yf: [], vf: [], gap: [] } : null;
+    for (var i = 0; i <= nMax; i++) {
+      var t = i * DT, gap = xf - xe - L;
+      hx.push(xf); hy.push(yf); hv.push(vf); hvy.push(vyf);
+      if (tr) { tr.t.push(t); tr.xe.push(xe); tr.ve.push(ve); tr.ae.push(ae); tr.xf.push(xf); tr.yf.push(yf); tr.vf.push(vf); tr.gap.push(gap); }
+      out.tEnd = t;
+      if (Math.abs(xe - xf) < L && Math.abs(yf) < W) { out.collided = true; out.tCol = t; out.dv = ve - vf; break; }
+      var inPath = Math.abs(yf) < W + 0.2;   // only count gaps / TTC while the other car is in our path
+      if (gap > 0 && inPath) out.minGap = Math.min(out.minGap, gap);
+      if (gap > 0 && ve > vf && inPath) out.minTtc = Math.min(out.minTtc, gap / (ve - vf));
+      if (ve <= 0.01 && i > 5) break;
+      if (Math.abs(yf) < 0.05 && ve <= vf + 0.01 && par.bf === 0 && gap > 0) break;
+
+      var target, J;
+      if (kind === 'ref') {
+        J = R.jerk;
+        if (percStep < 0 && Math.abs(LANE - yf) > R.wander) percStep = i;
+        var bCmd = 0;
+        if (percStep >= 0 && gap > 0 && ve > vf) {
+          var uLat = Math.abs(vyf), distLat = Math.max(0, Math.abs(yf) - W);
+          var tLonWin = (gap + 2 * L) / (ve - vf);
+          if (uLat < 1e-6 || distLat / uLat < tLonWin + 0.1) bCmd = refCmd(ve, vf, gap, ae);
+        }
+        cmdH.push(bCmd);
+        var k = i - tauSteps;
+        target = (k >= 0 && k >= percStep) ? -cmdH[k] : 0;
+      } else {
+        var p = par.stack; J = p.jerk;
+        var j = Math.max(0, i - dSteps), obs = { x: hx[j], y: hy[j], v: hv[j], vy: hvy[j] };
+        if (obs.x - xe > 200) obs = null;
+        target = clamp(stackCmd({ x: xe, v: ve }, obs, p, par.ve), -p.maxBrake, 2.5);
+      }
+      ae += clamp(target - ae, -J * DT, J * DT);
+      out.maxDec = Math.max(out.maxDec, -ae);
+      // fellow
+      if (yf > 0) { yf += vyf * DT; if (yf <= 0) { yf = 0; vyf = 0; } }
+      if (Math.abs(yf) < 1.0 && par.bf > 0) vf = Math.max(0, vf - par.bf * DT);
+      xf += vf * DT;
+      ve = Math.max(0, ve + ae * DT); xe += ve * DT;
+    }
+    return { out: out, tr: tr };
+  }
+
+  // cell classes: pass (avoidable, no collision), fail (avoidable, collision), uaOk / uaCol (reference cannot avoid)
+  function cell(par) {
+    var r = run(par, 'ref', false).out, s = run(par, 'stack', false).out, avoid = !r.collided;
+    return { ref: r, stk: s, cls: avoid ? (s.collided ? 'fail' : 'pass') : (s.collided ? 'uaCol' : 'uaOk') };
+  }
+  return { run: run, cell: cell, L: L, W: W, DT: DT, LANE: LANE, R: R };
+})();
+/* ==== CORE END ==== */
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var T = THREE, el = function (id) { return document.getElementById(id); };
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+  var col = function (hex) { return new T.Color(hex).convertSRGBToLinear(); };
+
+  /* ================= 3D replay scene ================= */
+  var wrap = el('vwrap'), canvas = el('view');
+  var renderer = new T.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.outputEncoding = T.sRGBEncoding; renderer.toneMapping = T.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+  var scene = new T.Scene(), camera = new T.PerspectiveCamera(58, 1, 0.3, 1800);
+  var HORIZON = col(0xbdd0e4);
+  scene.fog = new T.Fog(HORIZON, 140, 700);
+
+  function makeSky() {
+    var g = new T.SphereGeometry(1000, 32, 16), pos = g.attributes.position, colors = new Float32Array(pos.count * 3);
+    var top = col(0x2c68b0), hor = HORIZON, gnd = col(0x3b4838), c = new T.Color();
+    for (var i = 0; i < pos.count; i++) {
+      var y = pos.getY(i) / 1000;
+      if (y >= 0) c.copy(hor).lerp(top, Math.pow(y, 0.55)); else c.copy(hor).lerp(gnd, Math.min(1, -y * 5));
+      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new T.BufferAttribute(colors, 3));
+    return new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide, fog: false, depthWrite: false, toneMapped: false }));
+  }
+  var sky = makeSky(); scene.add(sky);
+  var SUN_DIR = new T.Vector3(-0.5, 0.62, 0.5).normalize();
+  (function () {
+    var envScene = new T.Scene(); envScene.add(makeSky());
+    var s = new T.Mesh(new T.SphereGeometry(80, 16, 8), new T.MeshBasicMaterial({ color: new T.Color(40, 36, 28) }));
+    s.position.copy(SUN_DIR).multiplyScalar(900); envScene.add(s);
+    var pm = new T.PMREMGenerator(renderer); scene.environment = pm.fromScene(envScene, 0.02).texture; pm.dispose();
+  })();
+  var sun = new T.DirectionalLight(0xfff1dc, 2.4); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+  var sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 500;
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05; scene.add(sun); scene.add(sun.target);
+  scene.add(new T.HemisphereLight(0xcfe0f5, 0x4a5a40, 0.45));
+
+  function canvasTex(w, h, draw) {
+    var c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+    var tex = new T.CanvasTexture(c); tex.encoding = T.sRGBEncoding; tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); return tex;
+  }
+  var ROAD_W = 13.5, ROAD_LEN = 1700, ROAD_Z0 = -150;
+  var roadTex = canvasTex(512, 512, function (g, w, h) {
+    g.fillStyle = '#3a3e44'; g.fillRect(0, 0, w, h);
+    for (var n = 0; n < 12000; n++) { var v = 38 + Math.random() * 56 | 0; g.fillStyle = 'rgba(' + v + ',' + v + ',' + (v + 4) + ',0.55)'; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    g.fillStyle = 'rgba(0,0,0,0.12)';
+    [-3.5, 0, 3.5].forEach(function (lc) { [-0.8, 0.8].forEach(function (o) { g.fillRect((0.5 + (lc + o) / ROAD_W) * w - 7, 0, 14, h); }); });
+    g.fillStyle = '#e9e9e4';
+    g.fillRect((0.5 - 5.25 / ROAD_W) * w - 3, 0, 6, h); g.fillRect((0.5 + 5.25 / ROAD_W) * w - 3, 0, 6, h);
+    g.fillRect((0.5 - 1.75 / ROAD_W) * w - 3, 0, 6, h * 0.25); g.fillRect((0.5 + 1.75 / ROAD_W) * w - 3, 0, 6, h * 0.25);
+  });
+  roadTex.wrapT = T.RepeatWrapping; roadTex.repeat.set(1, ROAD_LEN / 12);
+  var road = new T.Mesh(new T.PlaneGeometry(ROAD_W, ROAD_LEN).rotateX(-Math.PI / 2), new T.MeshStandardMaterial({ map: roadTex, roughness: 0.92 }));
+  road.position.set(0, 0, ROAD_Z0 + ROAD_LEN / 2); road.receiveShadow = true; scene.add(road);
+  var grassTex = canvasTex(256, 256, function (g, w, h) {
+    g.fillStyle = '#51703d'; g.fillRect(0, 0, w, h);
+    var cs = ['#476534', '#5d7d45', '#3f5b2e', '#68894d', '#566f3f'];
+    for (var n = 0; n < 5000; n++) { g.fillStyle = cs[n % cs.length]; g.fillRect(Math.random() * w, Math.random() * h, 2, 3); }
+  });
+  grassTex.wrapS = grassTex.wrapT = T.RepeatWrapping; grassTex.repeat.set(300, 300);
+  var ground = new T.Mesh(new T.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2), new T.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
+  ground.position.y = -0.06; ground.receiveShadow = true; scene.add(ground);
+  // guardrails + posts + trees
+  var railMat = new T.MeshStandardMaterial({ color: col(0xb9bec4), metalness: 0.7, roughness: 0.35 });
+  [-7.4, 7.4].forEach(function (x) {
+    var r = new T.Mesh(new T.BoxGeometry(0.12, 0.45, ROAD_LEN), railMat); r.position.set(x, 0.7, ROAD_Z0 + ROAD_LEN / 2); r.castShadow = true; scene.add(r);
+  });
+  (function () {
+    var cnt = Math.floor(ROAD_LEN / 4) * 2, im = new T.InstancedMesh(new T.BoxGeometry(0.1, 0.8, 0.1), railMat, cnt), d = new T.Object3D(), n = 0;
+    for (var z = ROAD_Z0; z < ROAD_Z0 + ROAD_LEN; z += 4) [-7.4, 7.4].forEach(function (x) { d.position.set(x, 0.4, z); d.updateMatrix(); im.setMatrixAt(n++, d.matrix); });
+    scene.add(im);
+    var seed = 7, rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    var MAX = 700, trunk = new T.InstancedMesh(new T.CylinderGeometry(0.22, 0.34, 2.4, 6).translate(0, 1.2, 0), new T.MeshStandardMaterial({ color: col(0x5a4330), roughness: 1 }), MAX);
+    var crown = new T.InstancedMesh(new T.ConeGeometry(2.3, 7, 7).translate(0, 5.4, 0), new T.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), MAX);
+    var greens = [0x2f5f2e, 0x3a6d33, 0x28552c, 0x467a39, 0x335f35].map(col);
+    for (var i = 0; i < MAX; i++) {
+      var side = rnd() < 0.5 ? -1 : 1, x = side * (14 + rnd() * 70), z = ROAD_Z0 + rnd() * ROAD_LEN, s = 0.8 + rnd() * 0.9;
+      d.position.set(x, 0, z); d.rotation.set(0, rnd() * 6.28, 0); d.scale.set(s, s * (0.9 + rnd() * 0.4), s); d.updateMatrix();
+      trunk.setMatrixAt(i, d.matrix); crown.setMatrixAt(i, d.matrix); crown.setColorAt(i, greens[i % greens.length]);
+    }
+    trunk.castShadow = crown.castShadow = true; scene.add(trunk); scene.add(crown);
+  })();
+
+  // cars
+  function profileGeo(pts, depth, bevel) {
+    var sh = new T.Shape(); pts.forEach(function (p, i) { if (i) sh.lineTo(p[0], p[1]); else sh.moveTo(p[0], p[1]); });
+    var g = new T.ExtrudeGeometry(sh, { depth: depth, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 2, steps: 1 });
+    g.translate(0, 0, -depth / 2); g.rotateY(-Math.PI / 2); return g;
+  }
+  var G = {
+    hull: profileGeo([[-2.25,0.3],[2.25,0.3],[2.25,0.65],[1.7,0.86],[0.9,0.92],[-1.6,0.92],[-2.25,0.86]], 1.62, 0.09),
+    glass: profileGeo([[0.95,0.9],[0.42,1.4],[-0.95,1.4],[-1.55,0.9]], 1.36, 0.03),
+    roof: new T.BoxGeometry(1.46, 0.05, 1.38).translate(0, 1.43, -0.27),
+    tire: new T.CylinderGeometry(0.34, 0.34, 0.24, 20).rotateZ(Math.PI / 2), rim: new T.CylinderGeometry(0.21, 0.21, 0.26, 12).rotateZ(Math.PI / 2),
+    head: new T.BoxGeometry(0.3, 0.1, 0.06), tail: new T.BoxGeometry(0.36, 0.09, 0.05)
+  };
+  var glassMat = new T.MeshStandardMaterial({ color: 0x080d12, metalness: 0.9, roughness: 0.08 });
+  var tireMat = new T.MeshStandardMaterial({ color: 0x121212, roughness: 0.95 });
+  var rimMat = new T.MeshStandardMaterial({ color: col(0xb8bdc4), metalness: 0.9, roughness: 0.3 });
+  var headMat = new T.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2cc, emissiveIntensity: 2 });
+  function makeCar(hex, ghost) {
+    var g = new T.Group(), rolls = [], tailMat = null;
+    if (ghost) {
+      var gm = new T.MeshBasicMaterial({ color: col(hex), transparent: true, opacity: 0.42, depthWrite: false });
+      g.add(new T.Mesh(G.hull, gm)); g.add(new T.Mesh(G.roof, gm));
+      var gg = new T.Mesh(G.glass, gm); g.add(gg);
+    } else {
+      var body = new T.MeshPhysicalMaterial({ color: col(hex), metalness: 0.55, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06 });
+      var hull = new T.Mesh(G.hull, body); hull.castShadow = true; g.add(hull);
+      g.add(new T.Mesh(G.glass, glassMat));
+      var roof = new T.Mesh(G.roof, body); roof.castShadow = true; g.add(roof);
+      tailMat = new T.MeshStandardMaterial({ color: 0x300000, emissive: 0xff1010, emissiveIntensity: 0.5 });
+      [-1, 1].forEach(function (sx) {
+        var tl = new T.Mesh(G.tail, tailMat); tl.position.set(sx * 0.62, 0.72, -2.33); g.add(tl);
+        var hl = new T.Mesh(G.head, headMat); hl.position.set(sx * 0.62, 0.68, 2.33); g.add(hl);
+        [1.38, -1.38].forEach(function (fz) {
+          var roll = new T.Group(); roll.position.set(sx * 0.86, 0.34, fz);
+          var tire = new T.Mesh(G.tire, tireMat); tire.castShadow = true; roll.add(tire); roll.add(new T.Mesh(G.rim, rimMat)); g.add(roll); rolls.push(roll);
+        });
+      });
+    }
+    scene.add(g); return { mesh: g, rolls: rolls, tailMat: tailMat };
+  }
+  var egoCar = makeCar(0xe86a00, false), refCar = makeCar(0x2f6fd0, true), fellowCar = makeCar(0xd9dde3, false);
+
+  function resize() {
+    var w = Math.max(1, wrap.clientWidth), h = Math.max(1, wrap.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap); else window.addEventListener('resize', resize);
+
+  /* ================= grid computation + heat map ================= */
+  var NX = 24, NY = 14, VY0 = 0.3, VY1 = 2.0;
+  var S = { ve: 100, vo: 60, bf: 0, stack: { delay: 0.3, maxBrake: 8, predict: 0.3, thr: 2.4, jerk: 25 } };
+  var grid = null, refCache = null, runTok = 0, userSel = false, sel = { i: 0, j: 0 };
+  var dMax = function () { return clamp(S.ve / 3.6 * 3, 40, 120); };
+  function cellPar(i, j) {
+    return { ve: S.ve / 3.6, vo: S.vo / 3.6, dx0: 2 + (dMax() - 2) * i / (NX - 1), vy: VY0 + (VY1 - VY0) * j / (NY - 1), bf: S.bf,
+      stack: { delay: S.stack.delay, maxBrake: S.stack.maxBrake, predict: S.stack.predict, thr: S.stack.thr, jerk: S.stack.jerk } };
+  }
+  function clsOf(r, s) { return !r.collided ? (s.collided ? 'fail' : 'pass') : (s.collided ? 'uaCol' : 'uaOk'); }
+
+  var heat = el('heat'), hctx = heat.getContext('2d'), css = {};
+  function readCss() {
+    var cs = getComputedStyle(document.documentElement);
+    ['--good', '--bad', '--ua', '--accent', '--fg', '--muted', '--line', '--ref', '--card'].forEach(function (k) { css[k] = cs.getPropertyValue(k).trim(); });
+  }
+  var ML = 40, MB = 36, MT = 8, MR = 8, HW = 0, HH = 0;
+  function sizeHeat() {
+    var w = el('mapwrap').clientWidth || 400, h = Math.round(w * 0.66), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    heat.width = Math.round(w * dpr); heat.height = Math.round(h * dpr); heat.style.height = h + 'px'; hctx.setTransform(dpr, 0, 0, dpr, 0, 0); HW = w; HH = h;
+  }
+  function drawHeat() {
+    readCss(); var c = hctx; c.clearRect(0, 0, HW, HH);
+    var cw = (HW - ML - MR) / NX, ch = (HH - MT - MB) / NY;
+    c.font = '11px ' + getComputedStyle(document.body).fontFamily; c.textBaseline = 'middle';
+    for (var j = 0; j < NY; j++) for (var i = 0; i < NX; i++) {
+      var x = ML + i * cw, y = MT + (NY - 1 - j) * ch, cell = grid && grid.cells[j * NX + i];
+      c.save(); c.beginPath(); c.rect(x + 0.5, y + 0.5, cw - 1, ch - 1); c.clip();
+      if (!cell) { c.globalAlpha = 0.12; c.fillStyle = css['--line']; c.fillRect(x, y, cw, ch); }
+      else if (cell.cls === 'pass') { c.globalAlpha = 0.82; c.fillStyle = css['--good']; c.fillRect(x, y, cw, ch); }
+      else if (cell.cls === 'fail') { c.globalAlpha = 0.95; c.fillStyle = css['--bad']; c.fillRect(x, y, cw, ch); c.globalAlpha = 1; c.fillStyle = '#fff'; c.textAlign = 'center'; c.fillText('×', x + cw / 2, y + ch / 2 + 1); }
+      else if (cell.cls === 'uaOk') { c.globalAlpha = 0.3; c.fillStyle = css['--ua']; c.fillRect(x, y, cw, ch); }
+      else { c.globalAlpha = 0.18; c.fillStyle = css['--ua']; c.fillRect(x, y, cw, ch); c.globalAlpha = 0.85; c.strokeStyle = css['--ua']; c.lineWidth = 1.2; c.beginPath();
+        for (var k = -ch; k < cw + ch; k += 5) { c.moveTo(x + k, y + ch); c.lineTo(x + k + ch, y); } c.stroke(); }
+      c.restore();
+    }
+    if (sel && grid) { var sx = ML + sel.i * cw, sy = MT + (NY - 1 - sel.j) * ch; c.lineWidth = 2.2; c.strokeStyle = css['--accent']; c.strokeRect(sx + 1, sy + 1, cw - 2, ch - 2); }
+    // axes
+    c.fillStyle = css['--muted']; c.textAlign = 'center'; c.textBaseline = 'top';
+    for (var t = 0; t <= 4; t++) { var i2 = Math.round((NX - 1) * t / 4), dxv = 2 + (dMax() - 2) * i2 / (NX - 1); c.fillText(Math.round(dxv), ML + (i2 + 0.5) * cw, HH - MB + 4); }
+    c.fillText('끼어들기 거리 (m)', ML + (HW - ML - MR) / 2, HH - 15);
+    c.textAlign = 'right'; c.textBaseline = 'middle';
+    for (var u = 0; u <= 3; u++) { var j2 = Math.round((NY - 1) * u / 3), vy = VY0 + (VY1 - VY0) * j2 / (NY - 1); c.fillText(vy.toFixed(1), ML - 5, MT + (NY - 1 - j2 + 0.5) * ch); }
+    c.save(); c.translate(11, MT + (HH - MT - MB) / 2); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillText('횡속도 (m/s)', 0, 0); c.restore();
+  }
+  function cellAt(ev) {
+    var r = heat.getBoundingClientRect(), x = (ev.clientX - r.left) * (HW / r.width), y = (ev.clientY - r.top) * (HH / r.height);
+    var cw = (HW - ML - MR) / NX, ch = (HH - MT - MB) / NY, i = Math.floor((x - ML) / cw), jj = Math.floor((y - MT) / ch), j = NY - 1 - jj;
+    if (i < 0 || i >= NX || j < 0 || j >= NY) return null; return { i: i, j: j };
+  }
+  var CLS_TXT = { pass: '통과 (회피 가능 · 무충돌)', fail: '실패 (회피 가능 · 충돌)', uaOk: '회피 불가 · 무충돌', uaCol: '회피 불가 · 충돌' };
+  var fm = function (v, d, u) { return isFinite(v) ? v.toFixed(d) + u : '—'; };
+  function tipText(ci, cj) {
+    var cell = grid && grid.cells[cj * NX + ci]; if (!cell) return null; var p = cellPar(ci, cj);
+    return '<b>' + CLS_TXT[cell.cls] + '</b><br>거리 ' + p.dx0.toFixed(0) + ' m · 횡속도 ' + p.vy.toFixed(2) + ' m/s<br>시험 스택: ' +
+      (cell.stk.collided ? '충돌 (상대 ' + (cell.stk.dv * 3.6).toFixed(0) + ' km/h)' : '무충돌') + ' · 최대 감속 ' + cell.stk.maxDec.toFixed(1) + '<br>참조 모델: ' +
+      (cell.ref.collided ? '충돌' : '무충돌') + ' · 최대 감속 ' + cell.ref.maxDec.toFixed(1);
+  }
+  var tip = el('tip');
+  function showTip(ev, c) {
+    var h = c && tipText(c.i, c.j); if (!h) { tip.hidden = true; return; }
+    tip.innerHTML = h; tip.hidden = false;
+    var wr = el('mapwrap').getBoundingClientRect(), x = ev.clientX - wr.left + 12, y = ev.clientY - wr.top + 12;
+    if (x + 232 > wr.width) x = ev.clientX - wr.left - 244; tip.style.left = Math.max(0, x) + 'px'; tip.style.top = Math.min(y, wr.height - 90) + 'px';
+  }
+  heat.addEventListener('mousemove', function (ev) { showTip(ev, cellAt(ev)); });
+  heat.addEventListener('mouseleave', function () { tip.hidden = true; });
+  heat.addEventListener('click', function (ev) {
+    var c = cellAt(ev); if (!c || !grid || !grid.cells[c.j * NX + c.i]) return;
+    userSel = true; sel = c; drawHeat(); loadScenario(); showTip(ev, c);
+  });
+
+  function computeGrid() {
+    var tok = ++runTok, key = [S.ve, S.vo, S.bf].join('|'), reuse = refCache && refCache.key === key, newRef = reuse ? null : new Array(NX * NY), jRow = 0;
+    grid = { cells: new Array(NX * NY) }; setVerdict('run');
+    function chunk() {
+      if (tok !== runTok) return; var t0 = performance.now();
+      while (jRow < NY && performance.now() - t0 < 14) {
+        for (var i = 0; i < NX; i++) {
+          var par = cellPar(i, jRow), idx = jRow * NX + i, r = reuse ? refCache.cells[idx] : Sim.run(par, 'ref', false).out;
+          if (!reuse) newRef[idx] = r; var s = Sim.run(par, 'stack', false).out;
+          grid.cells[idx] = { ref: r, stk: s, cls: clsOf(r, s) };
+        }
+        jRow++;
+      }
+      drawHeat();
+      if (jRow < NY) requestAnimationFrame(chunk); else { if (!reuse) refCache = { key: key, cells: newRef }; finishGrid(); }
+    }
+    requestAnimationFrame(chunk);
+  }
+  function setVerdict(v) {
+    var e = el('verdict'); e.className = 'pill st-' + (v === 'pass' ? 'pass' : v === 'fail' ? 'fail' : 'run');
+    e.textContent = v === 'pass' ? '격자 판정: 통과' : v === 'fail' ? '격자 판정: 실패' : '계산 중';
+  }
+  function finishGrid() {
+    var n = { pass: 0, fail: 0, uaOk: 0, uaCol: 0 }, first = null, best = null, bestDec = -1;
+    grid.cells.forEach(function (c, idx) {
+      n[c.cls]++;
+      if (c.cls === 'fail' && !first) first = idx;
+      if (c.cls === 'pass' && c.stk.maxDec > bestDec) { bestDec = c.stk.maxDec; best = idx; }
+    });
+    var av = n.pass + n.fail;
+    el('sAv').textContent = av + ' / ' + (NX * NY); el('sFail').textContent = n.fail + ' / ' + av; el('sUa').textContent = n.uaCol + ' / ' + n.uaOk;
+    setVerdict(n.fail ? 'fail' : 'pass');
+    if (!userSel) { var pick = first != null ? first : (best != null ? best : 0); sel = { i: pick % NX, j: Math.floor(pick / NX) }; }
+    drawHeat(); loadScenario();
+  }
+
+  /* ================= replay ================= */
+  var P = null, playing = true, tNow = 0, speed = 1, viewMode = 'chase', camPos = new T.Vector3(), camLook = new T.Vector3(), firstCam = true;
+  function loadScenario() {
+    var cell = grid && grid.cells[sel.j * NX + sel.i]; if (!cell) return;
+    var par = cellPar(sel.i, sel.j), a = Sim.run(par, 'stack', true), r = Sim.run(par, 'ref', true);
+    P = { par: par, A: a.tr, R: r.tr, oa: a.out, or: r.out, cls: cell.cls };
+    P.T = Math.max(a.tr.t[a.tr.t.length - 1], r.tr.t[r.tr.t.length - 1]); P.fl = a.tr.t.length >= r.tr.t.length ? a.tr : r.tr;
+    tNow = 0; playing = true; el('bPlay').textContent = '일시정지'; el('scrub').max = P.T.toFixed(2); firstCam = true;
+    el('selTitle').textContent = '선택한 시나리오 · 거리 ' + par.dx0.toFixed(0) + ' m · 횡속도 ' + par.vy.toFixed(2) + ' m/s · ' + CLS_TXT[P.cls];
+    var rows = [
+      ['결과', P.oa.collided ? '충돌' : '무충돌', P.or.collided ? '충돌' : '무충돌', P.oa.collided ? 'bad' : 'ok', P.or.collided ? 'bad' : 'ok'],
+      ['최대 감속', fm(P.oa.maxDec, 1, ' m/s²'), fm(P.or.maxDec, 1, ' m/s²')],
+      ['최소 TTC', fm(P.oa.minTtc, 2, ' s'), fm(P.or.minTtc, 2, ' s')],
+      ['최소 차간거리', fm(P.oa.minGap, 1, ' m'), fm(P.or.minGap, 1, ' m')],
+      ['충돌 시 상대속도', P.oa.collided ? (P.oa.dv * 3.6).toFixed(0) + ' km/h' : '—', P.or.collided ? (P.or.dv * 3.6).toFixed(0) + ' km/h' : '—']
+    ];
+    el('cmpBody').innerHTML = rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td class="' + (r[3] || '') + '">' + r[1] + '</td><td class="' + (r[4] || '') + '">' + r[2] + '</td></tr>'; }).join('');
+    drawCharts(0);
+  }
+  function idxOf(tr, t) { return Math.min(tr.t.length - 1, Math.max(0, Math.floor(t / Sim.DT + 1e-6))); }
+
+  function setPose(t, dtSim) {
+    if (!P) return;
+    var A = P.A, R = P.R, F = P.fl, ia = idxOf(A, t), ir = idxOf(R, t), ifl = idxOf(F, t), inx = Math.min(F.t.length - 1, ifl + 1);
+    egoCar.mesh.position.set(0, 0, A.xe[ia]); refCar.mesh.position.set(0, 0, R.xe[ir]);
+    fellowCar.mesh.position.set(F.yf[ifl], 0, F.xf[ifl]);
+    var dy = (F.yf[inx] - F.yf[ifl]) / Sim.DT; fellowCar.mesh.rotation.y = Math.atan2(dy, Math.max(F.vf[ifl], 1));
+    var live = dtSim > 0;
+    if (live) { egoCar.rolls.forEach(function (r) { r.rotation.x += A.ve[ia] * dtSim / 0.34; }); fellowCar.rolls.forEach(function (r) { r.rotation.x += F.vf[ifl] * dtSim / 0.34; }); }
+    egoCar.tailMat.emissiveIntensity = A.ae[ia] < -0.5 ? 4 : 0.5;
+    refCar.mesh.visible = Math.abs(A.xe[ia] - R.xe[ir]) > 0.05 || true;
+    el('hT').textContent = t.toFixed(2) + ' s'; el('hV').textContent = (A.ve[ia] * 3.6).toFixed(0) + ' km/h';
+    el('hA').textContent = Math.max(0, -A.ae[ia]).toFixed(1) + ' m/s²'; el('hG').textContent = A.gap[ia] > 0 ? A.gap[ia].toFixed(1) + ' m' : '—';
+    el('tLab').textContent = t.toFixed(1) + ' s'; el('scrub').value = t;
+    var b = '';
+    if (P.oa.collided && t >= P.oa.tCol - 1e-6) b += '<span class="badge" style="color:var(--bad)">시험 스택 충돌 ' + (P.oa.dv * 3.6).toFixed(0) + ' km/h</span>';
+    if (P.or.collided && t >= P.or.tCol - 1e-6) b += '<span class="badge" style="color:var(--ref)">참조 모델 충돌</span>';
+    if (el('badges').dataset.k !== b) { el('badges').dataset.k = b; el('badges').innerHTML = b; }
+    // camera
+    var ze = A.xe[ia], zf = F.xf[ifl], mid = (ze + zf) / 2, k = firstCam ? 1 : 1 - Math.exp(-0.06 * 5 * 6 * 0.16), wp, wl;
+    camera.up.set(0, 1, 0);
+    if (viewMode === 'chase') { wp = new T.Vector3(-0.0, 3.8, ze - 11); wl = new T.Vector3(0.4, 1.1, ze + 16); }
+    else if (viewMode === 'side') { wp = new T.Vector3(-13, 2.6, mid); wl = new T.Vector3(0, 1, mid + 2); }
+    else { wp = new T.Vector3(0, 52, mid); wl = new T.Vector3(0, 0, mid); camera.up.set(0, 0, 1); k = 1; }
+    camPos.lerp(wp, firstCam ? 1 : k); camLook.lerp(wl, firstCam ? 1 : k); firstCam = false;
+    camera.position.copy(camPos); camera.lookAt(camLook); sky.position.copy(camera.position);
+    sun.position.set(SUN_DIR.x * 150, SUN_DIR.y * 150, ze + SUN_DIR.z * 150); sun.target.position.set(0, 0, ze);
+  }
+
+  /* ================= charts ================= */
+  var cvs = [el('ch1'), el('ch2')];
+  function drawChart(cv, series, xMax, yMax, unit, title, tNowV, thr, marks) {
+    var w = cv.clientWidth || 400, h = 150, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    var l = 40, r = 8, tp = 22, bt = 22, pw = w - l - r, ph = h - tp - bt;
+    c.font = '11px ' + getComputedStyle(document.body).fontFamily; c.fillStyle = css['--muted'] || '#888'; c.strokeStyle = css['--line'] || '#888'; c.lineWidth = 1;
+    c.textBaseline = 'middle'; c.textAlign = 'right';
+    for (var g = 0; g <= 4; g++) { var yv = yMax * g / 4, y = tp + ph - ph * g / 4; c.beginPath(); c.moveTo(l, y); c.lineTo(l + pw, y); c.stroke(); c.fillText(Math.round(yv), l - 5, y); }
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    for (var q = 0; q <= 4; q++) c.fillText((xMax * q / 4).toFixed(1), l + pw * q / 4, tp + ph + 5);
+    c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = css['--fg']; c.fillText(title + ' (' + unit + ')', l, 8);
+    var lx = l + 150;
+    series.forEach(function (s) {
+      c.strokeStyle = s.color; c.lineWidth = s.w || 2; c.setLineDash(s.dash || []); c.beginPath();
+      var n = s.x.length, step = Math.max(1, Math.floor(n / 400));
+      for (var i = 0; i < n; i += step) { var px = l + pw * s.x[i] / xMax, py = tp + ph - ph * clamp(s.y[i] / yMax, 0, 1); if (i) c.lineTo(px, py); else c.moveTo(px, py); }
+      c.stroke(); c.setLineDash([]);
+      c.fillStyle = s.color; c.fillRect(lx, 4, 10, 3); c.fillStyle = css['--muted']; c.fillText(s.name, lx + 14, 8); lx += 14 + c.measureText(s.name).width + 12;
+    });
+    if (thr != null) { var ty = tp + ph - ph * thr / yMax; c.strokeStyle = css['--bad']; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(l, ty); c.lineTo(l + pw, ty); c.stroke(); c.setLineDash([]); c.fillStyle = css['--bad']; c.textAlign = 'right'; c.fillText(thr + ' 기준', l + pw, ty - 7); }
+    (marks || []).forEach(function (m) { var mx = l + pw * m.t / xMax; c.strokeStyle = m.color; c.lineWidth = 1.5; c.beginPath(); c.moveTo(mx, tp); c.lineTo(mx, tp + ph); c.stroke(); });
+    var px2 = l + pw * clamp(tNowV / xMax, 0, 1); c.strokeStyle = css['--accent']; c.lineWidth = 1.5; c.beginPath(); c.moveTo(px2, tp); c.lineTo(px2, tp + ph); c.stroke();
+  }
+  function drawCharts(t) {
+    if (!P) return; readCss();
+    var A = P.A, R = P.R, F = P.fl, xMax = Math.max(1, P.T), v0 = P.par.ve * 3.6;
+    var kmh = function (a) { return a.map(function (v) { return v * 3.6; }); }, dec = function (a) { return a.map(function (v) { return Math.max(0, -v); }); };
+    var marks = []; if (P.oa.collided) marks.push({ t: P.oa.tCol, color: css['--bad'] }); if (P.or.collided) marks.push({ t: P.or.tCol, color: css['--ref'] });
+    drawChart(cvs[0], [{ name: '상대 차', x: F.t, y: kmh(F.vf), color: css['--ua'], w: 1.5 }, { name: '참조', x: R.t, y: kmh(R.ve), color: css['--ref'], dash: [5, 3] }, { name: '스택', x: A.t, y: kmh(A.ve), color: css['--accent'] }], xMax, Math.ceil(Math.max(v0, 20) / 20) * 20, 'km/h', '속도', t, null, marks);
+    var dm = Math.max(P.oa.maxDec, P.or.maxDec, 6); dm = Math.ceil(dm / 2) * 2;
+    drawChart(cvs[1], [{ name: '참조', x: R.t, y: dec(R.ae), color: css['--ref'], dash: [5, 3] }, { name: '스택', x: A.t, y: dec(A.ae), color: css['--accent'] }], xMax, dm, 'm/s²', '감속도', t, 5, marks);
+  }
+
+  /* ================= wiring ================= */
+  function bindRange(id, outId, fmt, set) {
+    var inp = el(id), out = el(outId), tm = null;
+    function upd() { out.textContent = fmt(parseFloat(inp.value)); }
+    inp.addEventListener('input', function () { upd(); set(parseFloat(inp.value)); clearTimeout(tm); tm = setTimeout(function () { userSel = false; computeGrid(); }, 160); }); upd();
+  }
+  bindRange('sVe', 'oVe', function (v) { return v + ' km/h'; }, function (v) { S.ve = v; });
+  bindRange('sVo', 'oVo', function (v) { return v + ' km/h'; }, function (v) { S.vo = v; });
+  bindRange('sDelay', 'oDelay', function (v) { return v.toFixed(2) + ' s'; }, function (v) { S.stack.delay = v; });
+  bindRange('sBrake', 'oBrake', function (v) { return v.toFixed(1) + ' m/s²'; }, function (v) { S.stack.maxBrake = v; });
+  bindRange('sPred', 'oPred', function (v) { return v === 0 ? '끔' : v.toFixed(1) + ' s'; }, function (v) { S.stack.predict = v; });
+  bindRange('sThr', 'oThr', function (v) { return v.toFixed(1) + ' m'; }, function (v) { S.stack.thr = v; });
+  bindRange('sJerk', 'oJerk', function (v) { return v + ' m/s³'; }, function (v) { S.stack.jerk = v; });
+  el('segBf').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    Array.prototype.forEach.call(el('segBf').children, function (c) { c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); });
+    S.bf = parseFloat(b.dataset.v); userSel = false; computeGrid();
+  });
+  var PRESETS = { good: { sDelay: 0.3, sBrake: 8, sPred: 0.3, sThr: 2.4, sJerk: 25 }, slow: { sDelay: 1.0, sBrake: 6, sPred: 0, sThr: 1.9, sJerk: 8 }, nopred: { sDelay: 0.3, sBrake: 8, sPred: 0, sThr: 2.0, sJerk: 25 } };
+  el('presets').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; var p = PRESETS[b.dataset.p];
+    Object.keys(p).forEach(function (id) { var inp = el(id); inp.value = p[id]; inp.dispatchEvent(new Event('input')); });
+  });
+  el('bPlay').addEventListener('click', function () {
+    if (!P) return; if (!playing && tNow >= P.T - 1e-6) tNow = 0; playing = !playing; this.textContent = playing ? '일시정지' : '재생';
+  });
+  el('bRestart').addEventListener('click', function () { tNow = 0; playing = true; el('bPlay').textContent = '일시정지'; });
+  el('scrub').addEventListener('input', function () { tNow = parseFloat(this.value); playing = false; el('bPlay').textContent = '재생'; });
+  el('sSpeed').addEventListener('change', function () { speed = parseFloat(this.value); });
+  el('sView').addEventListener('change', function () { viewMode = this.value; firstCam = true; });
+  window.addEventListener('resize', function () { sizeHeat(); drawHeat(); if (P) drawCharts(tNow); });
+  if (window.ResizeObserver) new ResizeObserver(function () { sizeHeat(); drawHeat(); if (P) drawCharts(tNow); }).observe(el('mapwrap'));
+
+  var last = performance.now();
+  function loop(now) {
+    requestAnimationFrame(loop);
+    var dt = Math.min(0.1, (now - last) / 1000); last = now; var adv = 0;
+    if (P && playing) { adv = dt * speed; tNow += adv; if (tNow >= P.T) { tNow = P.T; playing = false; el('bPlay').textContent = '재생'; } }
+    setPose(tNow, adv); drawCharts(tNow);
+    renderer.render(scene, camera);
+  }
+  sizeHeat(); resize(); computeGrid(); requestAnimationFrame(loop);
+})();
+</script>
+</body></html>

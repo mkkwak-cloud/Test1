@@ -16,6 +16,9 @@
   --accent-fg: #ffffff;
   --map-road: rgba(20, 24, 29, 0.28);
   --map-car: #55606b;
+  --good: #1b7f4b;
+  --warnc: #9a5b00;
+  --bad: #c0262d;
   --font-ui: 'Barlow Semi Condensed', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-num: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
@@ -30,6 +33,9 @@
     --accent-fg: #1a1200;
     --map-road: rgba(255, 255, 255, 0.28);
     --map-car: #98a3ae;
+    --good: #4cc38a;
+    --warnc: #ffb02e;
+    --bad: #ff6b6b;
     color-scheme: dark;
   }
 }
@@ -43,6 +49,9 @@
   --accent-fg: #1a1200;
   --map-road: rgba(255, 255, 255, 0.28);
   --map-car: #98a3ae;
+  --good: #4cc38a;
+  --warnc: #ffb02e;
+  --bad: #ff6b6b;
   color-scheme: dark;
 }
 html, body { height: 100%; }
@@ -74,6 +83,25 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .lim { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: none; }
 .sign { width: 46px; height: 46px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 5px solid #d3202a; color: #111; display: grid; place-items: center; font: 700 1.1rem/1 var(--font-ui); font-variant-numeric: tabular-nums; }
 .limnote { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+.right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; flex: none; margin-left: auto; }
+.pill { display: inline-block; min-width: 3.2em; text-align: center; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid currentColor; }
+.st-pass { color: var(--good); } .st-warn { color: var(--warnc); } .st-fail { color: var(--bad); }
+.kpi { width: min(268px, calc(100vw - 32px)); box-sizing: border-box; padding: 10px 12px; max-height: calc(100vh - 290px); overflow: auto; }
+.kh { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.kh b { font-size: 0.95rem; font-weight: 600; }
+.kprog { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.kprog i { display: block; height: 100%; width: 0; background: var(--accent); }
+.kmeta { font-size: 0.72rem; color: var(--muted); margin: 4px 0 8px; }
+.krows { display: grid; grid-template-columns: 1fr auto auto; gap: 5px 8px; align-items: center; font-size: 0.8rem; }
+.kv { font-family: var(--font-num); font-variant-numeric: tabular-nums; text-align: right; }
+.kev { list-style: none; margin: 8px 0 4px; padding: 0; font-size: 0.74rem; color: var(--muted); display: grid; gap: 2px; }
+.kpi button { width: 100%; margin-top: 4px; }
+.kpi textarea { width: 100%; box-sizing: border-box; margin-top: 6px; font: 0.7rem/1.3 var(--font-num); background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 700px) {
+  body.kpi-open .info { display: none; } .right { flex: 1; }
+  .grp { padding: 4px 6px; } .grp .lab { display: none; } button { padding: 6px 8px; }
+  .bar { gap: 6px; bottom: 12px; } .kpi { max-height: calc(100vh - 330px); }
+}
 .stats { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 0.86rem; }
 .stats dt { color: var(--muted); }
 .stats dd { margin: 0; font-family: var(--font-num); font-variant-numeric: tabular-nums; text-align: right; }
@@ -114,6 +142,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <dt>모드</dt><dd id="modeTxt">자율</dd>
         <dt>상태</dt><dd id="stat">정속 주행</dd>
         <dt>차선</dt><dd id="laneTxt">1차로</dd>
+        <dt>KPI 판정</dt><dd id="verdictMini">—</dd>
         <dt>앞차 간격</dt><dd id="gap">—</dd>
         <dt>FPS</dt><dd id="fps">–</dd>
         <dt>Draw calls</dt><dd id="calls">–</dd>
@@ -121,7 +150,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       </dl>
       <p class="hint">수동: W/S 가속·제동, A/D 조향<br>C 시점 · M 모드 · Z 차선 변경</p>
     </section>
-    <section class="panel mapbox"><canvas id="map" width="300" height="300"></canvas></section>
+    <div class="right">
+      <section class="panel mapbox"><canvas id="map" width="300" height="300"></canvas></section>
+      <section class="panel kpi" id="kpiPanel" aria-label="KPI 판정">
+        <div class="kh"><b>KPI 판정</b><span class="pill" id="kVerdict">진행 중</span></div>
+        <div class="kprog"><i id="kBar"></i></div>
+        <div class="kmeta" id="kProg">0%</div>
+        <div class="krows" id="kRows"></div>
+        <ul class="kev" id="kEvents"></ul>
+        <button id="kCopy">결과 복사 (JSON)</button>
+        <textarea id="kText" readonly hidden rows="5" aria-label="KPI 결과 JSON"></textarea>
+      </section>
+    </div>
   </div>
 
   <div class="bar">
@@ -150,7 +190,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <button data-v="lo" aria-pressed="false">낮음</button>
       </div>
     </div>
-    <div class="panel grp"><button id="btnLane">차선 변경</button><button id="btnReset">초기화</button></div>
+    <div class="panel grp"><button id="btnKpi" aria-pressed="true">KPI 판정</button><button id="btnLane">차선 변경</button><button id="btnReset">초기화</button></div>
   </div>
 </div>
 
@@ -506,6 +546,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     sample(60, 1.75, tmp);
     ego.s = 60; ego.si = Math.round(60 / DS); ego.x = tmp.x; ego.z = tmp.z; ego.th = tmp.h; ego.v = 8; ego.delta = 0; ego.d = 1.75; ego.laneT = 1; ego.home = 1; ego.lane = 'R1'; ego.sig = 0; ego.cd = 0;
     traffic[0].s = 112; traffic[0].v = traffic[0].vBase;
+    resetKpi();
   }
   resetEgo();
 
@@ -617,7 +658,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       steerT = Math.atan2(2 * WB * Math.sin(alpha), Ld);
       var look = Math.ceil((12 + e.v * 3) / DS), kmax = 0;
       for (j = 0; j <= look; j++) kmax = Math.max(kmax, kapS[(e.si + j) % N]);
-      var vt = Math.min(limitAt(e.s).v / 3.6, Math.sqrt(A_LAT / Math.max(kmax, 1e-4)));
+      var vl = 99;
+      for (var kk = 0; kk <= 100; kk += 10) { var lk = limitAt(e.s + kk).v / 3.6; vl = Math.min(vl, Math.sqrt(lk * lk + 2 * 2.0 * kk)); }
+      var vt = Math.min(vl, Math.sqrt(A_LAT / Math.max(kmax, 1e-4)));
       if (lead) vt = Math.min(vt, accSpeed(e.v, lead));
       a = clamp(1.0 * (vt - e.v), -7, 2.5);
     } else {
@@ -631,6 +674,130 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     e.v = Math.max(0, e.v + a * dt); e.brake = a < -0.8;
     e.th += e.v / WB * Math.tan(e.delta) * dt;
     e.x += e.v * Math.sin(e.th) * dt; e.z += e.v * Math.cos(e.th) * dt;
+  }
+
+  /* ---------- KPI judgement (one lap = one test run) ---------- */
+  var KP = {
+    ttc: { warn: 2.0, fail: 1.0 }, thw: { warn: 0.8, fail: 0.4 }, gap: { warn: 2.5, fail: 1.0 },
+    over: { tol: 3, warnT: 1, failT: 5 }, decel: { warn: 3.5, fail: 6 }, lat: { warn: 3.5, fail: 5 }, xte: { warn: 0.5, fail: 1.2 }
+  };
+  var kpi, kpiTmp = { x: 0, z: 0, h: 0 };
+  function resetKpi() {
+    kpi = { t: 0, dist: 0, done: false, manual: false, coll: 0, inColl: false, ttc: Infinity, thw: Infinity, gap: Infinity,
+      red: 0, pedV: 0, overT: 0, overMax: 0, decel: 0, latA: 0, xte: 0, sigT: 99, vPrev: ego.v, sdPrev: -999, inX: false, hb: false, ttcEv: false, events: [] };
+  }
+  function signedS(d) { d = wrapS(d); return d > LEN / 2 ? d - LEN : d; }
+  function circlesHit(x1, z1, h1, x2, z2, h2) {
+    for (var a = -1.3; a <= 1.3; a += 1.3) for (var b = -1.3; b <= 1.3; b += 1.3) {
+      var dx = x1 + Math.sin(h1) * a - x2 - Math.sin(h2) * b, dz = z1 + Math.cos(h1) * a - z2 - Math.cos(h2) * b;
+      if (dx * dx + dz * dz < 3.61) return true;
+    }
+    return false;
+  }
+  function kpiEvent(txt) { kpi.events.push({ t: kpi.t, txt: txt }); if (kpi.events.length > 30) kpi.events.shift(); }
+  function stepKpi(dt) {
+    var e = ego, k = kpi, i, p, c;
+    if (k.done) return;
+    k.t += dt; k.dist += e.v * dt; if (mode === 'manual') k.manual = true;
+    var hit = null;
+    for (i = 0; i < traffic.length && !hit; i++) {
+      c = traffic[i]; sample(c.s, c.d, kpiTmp);
+      if (circlesHit(e.x, e.z, e.th, kpiTmp.x, kpiTmp.z, kpiTmp.h + (c.dir < 0 ? Math.PI : 0))) hit = '차량 #' + (i + 1);
+    }
+    for (i = 0; i < peds.length && !hit; i++) {
+      p = peds[i]; sample(p.s, p.d, kpiTmp);
+      for (var a = -1.3; a <= 1.3; a += 1.3) {
+        var qx = e.x + Math.sin(e.th) * a - kpiTmp.x, qz = e.z + Math.cos(e.th) * a - kpiTmp.z;
+        if (qx * qx + qz * qz < 1.6) hit = '보행자';
+      }
+    }
+    if (hit && !k.inColl) { k.coll++; kpiEvent('충돌: ' + hit); }
+    k.inColl = !!hit;
+
+    var lead = e.lead;
+    if (lead && !lead.virt) {
+      k.gap = Math.min(k.gap, lead.gap);
+      if (e.v > 1) {
+        k.thw = Math.min(k.thw, Math.max(0, lead.gap) / e.v);
+        var cl = e.v - lead.o.v; if (cl > 0.1) k.ttc = Math.min(k.ttc, Math.max(0, lead.gap) / cl);
+      }
+    }
+    if (e.v > 0.5) for (i = 0; i < peds.length; i++) {
+      p = peds[i]; if (!p.onRoad || Math.abs(p.d - e.d) > 2.2) continue;
+      var along = wrapS(p.s - e.s) - 2.55; if (along > 0 && along < 60) k.ttc = Math.min(k.ttc, along / e.v);
+    }
+    if (k.ttc < KP.ttc.warn && !k.ttcEv) { k.ttcEv = true; kpiEvent('TTC ' + k.ttc.toFixed(1) + ' s (2 s 미만)'); }
+
+    var over = e.v * 3.6 - limitAt(e.s).v;
+    if (over > KP.over.tol) { k.overT += dt; k.overMax = Math.max(k.overMax, over); }
+    var acc = (e.v - k.vPrev) / dt; k.vPrev = e.v;
+    if (acc < 0) {
+      k.decel = Math.max(k.decel, -acc);
+      if (-acc > KP.decel.warn && !k.hb) { k.hb = true; kpiEvent('급제동 ' + (-acc).toFixed(1) + ' m/s²'); } else if (-acc < 1) k.hb = false;
+    }
+    k.latA = Math.max(k.latA, e.v * e.v * Math.abs(Math.tan(e.delta)) / WB);
+    k.sigT = e.sig ? 0 : k.sigT + dt;
+    if (mode === 'auto' && k.sigT > 1.5 && e.v > 1) {
+      var lat = (e.x - px[e.si]) * -tz[e.si] + (e.z - pz[e.si]) * tx[e.si];
+      k.xte = Math.max(k.xte, Math.abs(lat - e.d));
+    }
+    var sd = signedS(e.s + 2.25 - S_STOP_L);
+    if (k.sdPrev < 0 && sd >= 0 && sd < 30) {
+      if (lightState === 'red') { k.red++; kpiEvent('신호 위반 (적색 통과)'); }
+      else if (lightState === 'yellow') kpiEvent('황색 신호 통과');
+    }
+    k.sdPrev = sd;
+    var inX = Math.abs(signedS(e.s - S_P)) < 3.2;
+    if (inX && !k.inX && peds.some(function (q) { return q.onRoad; })) { k.pedV++; kpiEvent('보행자 양보 위반'); }
+    k.inX = inX;
+    if (k.dist >= LEN) { k.done = true; kpiEvent('1랩 완주 · 최종 판정'); }
+  }
+  function kpiRows() {
+    var k = kpi;
+    function lo(v, t) { return v < t.fail ? 'fail' : (v < t.warn ? 'warn' : 'pass'); }
+    function hi(v, t) { return v >= t.fail ? 'fail' : (v >= t.warn ? 'warn' : 'pass'); }
+    return [
+      { id: 'collisions', label: '충돌', val: k.coll + '건', st: k.coll ? 'fail' : 'pass' },
+      { id: 'min_ttc_s', label: '최소 TTC', val: isFinite(k.ttc) ? k.ttc.toFixed(1) + ' s' : '—', st: isFinite(k.ttc) ? lo(k.ttc, KP.ttc) : 'pass' },
+      { id: 'min_thw_s', label: '최소 차간시간', val: isFinite(k.thw) ? k.thw.toFixed(1) + ' s' : '—', st: isFinite(k.thw) ? lo(k.thw, KP.thw) : 'pass' },
+      { id: 'min_gap_m', label: '최소 차간거리', val: isFinite(k.gap) ? k.gap.toFixed(1) + ' m' : '—', st: isFinite(k.gap) ? lo(k.gap, KP.gap) : 'pass' },
+      { id: 'red_light', label: '신호 위반', val: k.red + '건', st: k.red ? 'fail' : 'pass' },
+      { id: 'ped_yield', label: '보행자 양보', val: k.pedV + '건', st: k.pedV ? 'fail' : 'pass' },
+      { id: 'overspeed_s', label: '속도 초과(+' + KP.over.tol + ')', val: k.overT.toFixed(1) + ' s', st: k.overT > KP.over.failT ? 'fail' : (k.overT > KP.over.warnT ? 'warn' : 'pass') },
+      { id: 'max_decel', label: '최대 감속', val: k.decel.toFixed(1) + ' m/s²', st: hi(k.decel, KP.decel) },
+      { id: 'max_lat_acc', label: '최대 횡가속', val: k.latA.toFixed(1) + ' m/s²', st: hi(k.latA, KP.lat) },
+      { id: 'lane_error_m', label: '차선 유지 오차', val: k.xte.toFixed(2) + ' m', st: hi(k.xte, KP.xte) }
+    ];
+  }
+  function overall(rows) {
+    var w = false;
+    for (var i = 0; i < rows.length; i++) { if (rows[i].st === 'fail') return 'fail'; if (rows[i].st === 'warn') w = true; }
+    return w ? 'warn' : 'pass';
+  }
+  var ST_TXT = { pass: '통과', warn: '주의', fail: '실패' }, kCells = [];
+  function updateKpiUI() {
+    var rows = kpiRows(), k = kpi, ov = overall(rows), box = el('kRows');
+    if (!kCells.length) rows.forEach(function () {
+      var l = document.createElement('span'), v = document.createElement('span'), st = document.createElement('span');
+      v.className = 'kv'; st.className = 'pill'; box.appendChild(l); box.appendChild(v); box.appendChild(st); kCells.push([l, v, st]);
+    });
+    rows.forEach(function (r, i) { kCells[i][0].textContent = r.label; kCells[i][1].textContent = r.val; kCells[i][2].textContent = ST_TXT[r.st]; kCells[i][2].className = 'pill st-' + r.st; });
+    var label = (k.done ? '최종 ' : '진행 중 · ') + ST_TXT[ov];
+    el('kVerdict').textContent = label; el('kVerdict').className = 'pill st-' + ov;
+    el('verdictMini').textContent = label; el('verdictMini').className = 'st-' + ov;
+    var pct = Math.min(100, k.dist / LEN * 100);
+    el('kBar').style.width = pct + '%';
+    el('kProg').textContent = '1랩 ' + pct.toFixed(0) + '% · ' + k.t.toFixed(0) + ' s' + (k.manual ? ' · 수동 개입 있음' : '');
+    var ul = el('kEvents'); ul.textContent = '';
+    var ev = k.events.slice(-4).reverse();
+    if (!ev.length) ev = [{ t: 0, txt: '기록된 이벤트 없음', none: true }];
+    ev.forEach(function (x) { var li = document.createElement('li'); li.textContent = x.none ? x.txt : 't=' + x.t.toFixed(0) + 's  ' + x.txt; ul.appendChild(li); });
+  }
+  function kpiReport() {
+    var rows = kpiRows(), out = {};
+    rows.forEach(function (r) { out[r.id] = { value: r.val, status: r.st }; });
+    return { scenario: 'Drive Sim Lite 1 lap', finished: kpi.done, verdict: overall(rows), manual_intervention: kpi.manual,
+      duration_s: +kpi.t.toFixed(1), distance_m: +kpi.dist.toFixed(0), kpis: out, events: kpi.events.map(function (x) { return { t_s: +x.t.toFixed(1), event: x.txt }; }) };
   }
 
   function applyVisual(c, dt) {
@@ -751,6 +918,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var syncView = seg('segView', setView);
   seg('segQual', setQuality);
   seg('segStyle', setStyle);
+  var kpiOpen = (window.innerWidth || 1000) >= 700;
+  function showKpi(on) { kpiOpen = on; el('kpiPanel').hidden = !on; el('btnKpi').setAttribute('aria-pressed', on ? 'true' : 'false'); document.body.classList.toggle('kpi-open', on); }
+  el('btnKpi').addEventListener('click', function () { showKpi(!kpiOpen); });
+  showKpi(kpiOpen);
+  el('kCopy').addEventListener('click', function () {
+    var txt = JSON.stringify(kpiReport(), null, 2), ta = el('kText'), btn = el('kCopy');
+    ta.value = txt;
+    var fallback = function () { ta.hidden = false; ta.select(); };
+    try { navigator.clipboard.writeText(txt).then(function () { btn.textContent = '복사됨'; setTimeout(function () { btn.textContent = '결과 복사 (JSON)'; }, 1500); }, fallback); } catch (err) { fallback(); }
+  });
   el('btnLane').addEventListener('click', function () { ego.home = ego.home === 1 ? 2 : 1; });
   el('btnReset').addEventListener('click', function () { resetEgo(); updateCamera(0, true); });
   var viewOrder = ['chase', 'hood', 'top'];
@@ -813,7 +990,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function frame(now) {
     requestAnimationFrame(frame);
     var dt = Math.min(0.1, (now - last) / 1000); last = now; acc += dt;
-    while (acc >= STEP) { simT += STEP; stepLight(); stepPeds(); stepTraffic(STEP); stepEgo(STEP); acc -= STEP; }
+    while (acc >= STEP) { simT += STEP; stepLight(); stepPeds(); stepTraffic(STEP); stepEgo(STEP); stepKpi(STEP); acc -= STEP; }
     for (var i = 0; i < all.length; i++) applyVisual(all[i], dt);
     updatePedVisuals();
     if (styleMode === 'fsd') updateRibbon();
@@ -834,6 +1011,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       el('limSign').textContent = lim.v; el('limNote').textContent = lim.note;
       el('stat').textContent = statusText();
       el('laneTxt').textContent = ego.sig > 0 ? '1→2차로 ▶' : (ego.sig < 0 ? '2→1차로 ◀' : ego.laneT + '차로');
+      updateKpiUI();
       fpsN = 0; fpsT = now;
     }
   }
